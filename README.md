@@ -5,10 +5,10 @@ This is a crate for memory manipulation (Windows only) that i'm creating to help
 #### Todo:
 - [X] Get process list
 - [X] Get process by name
-- [ ] Get key state and stuff
+- [X] Get process module
 - [ ] Read process memory
+- [ ] Get key state and stuff
 - [ ] Write process memory
-- [ ] Get module base address
 - [ ] Find dynamic address
 - [ ] Patch memory location
 - [ ] Pattern scanning

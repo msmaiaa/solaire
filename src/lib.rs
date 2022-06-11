@@ -18,6 +18,22 @@ pub struct Process {
     pub str_szExeFile: String,
 }
 
+#[allow(non_snake_case)]
+pub struct ProcessModule {
+    pub dwSize: u32,
+    pub th32ModuleID: u32,
+    pub th32ProcessID: u32,
+    pub GlblcntUsage: u32,
+    pub ProccntUsage: u32,
+    pub modBaseAddr: *mut u8,
+    pub modBaseSize: u32,
+    pub hModule: HINSTANCE,
+    pub szModule: [CHAR; 256],
+    pub szExePath: [CHAR; 260],
+    pub str_szModule: String,
+    pub str_szExePath: String,
+}
+
 pub unsafe fn get_processes() -> Result<Vec<Process>, Error> {
     let h_snapshot = match CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) {
         Ok(handle) => handle,
@@ -64,6 +80,48 @@ pub unsafe fn get_process(name: String) -> Option<Process> {
     }
 }
 
+pub unsafe fn get_process_module(pid: u32, mod_name: String) -> Result<ProcessModule, Error> {
+    let h_snapshot = match CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid) {
+        Ok(handle) => handle,
+        Err(_) => {
+            return Err(Error::new(
+                ErrorKind::Other,
+                "Failed to create snapshot of the processes.",
+            ))
+        }
+    };
+    let mut mod_entry = MODULEENTRY32 {
+        dwSize: std::mem::size_of::<MODULEENTRY32>() as u32,
+        ..Default::default()
+    };
+    match Module32First(h_snapshot, &mut mod_entry).as_bool() {
+        true => loop {
+            if wchar_arr_to_string(&mod_entry.szModule) == mod_name {
+                return Ok(parse_moduleentry32(&mod_entry));
+            }
+            Module32Next(h_snapshot, &mut mod_entry);
+        },
+        _ => return Err(Error::new(ErrorKind::Other, "Failed to get first module.")),
+    }
+}
+
+fn parse_moduleentry32(mod_entry: &MODULEENTRY32) -> ProcessModule {
+    ProcessModule {
+        th32ModuleID: mod_entry.th32ModuleID,
+        th32ProcessID: mod_entry.th32ProcessID,
+        GlblcntUsage: mod_entry.GlblcntUsage,
+        ProccntUsage: mod_entry.ProccntUsage,
+        modBaseAddr: mod_entry.modBaseAddr,
+        modBaseSize: mod_entry.modBaseSize,
+        hModule: mod_entry.hModule,
+        dwSize: mod_entry.dwSize,
+        szModule: mod_entry.szModule,
+        str_szModule: wchar_arr_to_string(&mod_entry.szModule),
+        szExePath: mod_entry.szExePath,
+        str_szExePath: wchar_arr_to_string(&mod_entry.szExePath),
+    }
+}
+
 fn parse_processentry32(proc_entry: &PROCESSENTRY32) -> Process {
     Process {
         str_szExeFile: wchar_arr_to_string(&proc_entry.szExeFile),
@@ -80,7 +138,7 @@ fn parse_processentry32(proc_entry: &PROCESSENTRY32) -> Process {
     }
 }
 
-fn wchar_arr_to_string(arr: &[CHAR; 260]) -> String {
+fn wchar_arr_to_string(arr: &[CHAR]) -> String {
     let mut result = String::new();
     for c in arr.iter() {
         if c.0 == 0 {
