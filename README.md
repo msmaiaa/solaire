@@ -4,7 +4,7 @@ This is a crate for memory manipulation (Windows only) that i'm creating to help
 
 #### Todo:
 - [X] Get process list
-- [ ] Get process by name 
+- [X] Get process by name
 - [ ] Get key state and stuff
 - [ ] Read process memory
 - [ ] Write process memory

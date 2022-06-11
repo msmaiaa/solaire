@@ -3,6 +3,7 @@ use std::io::{Error, ErrorKind};
 use windows::Win32::Foundation::*;
 use windows::Win32::System::Diagnostics::ToolHelp::*;
 
+#[allow(non_snake_case)]
 pub struct Process {
     pub dwSize: u32,
     pub cntUsage: u32,
@@ -47,6 +48,20 @@ pub unsafe fn get_processes() -> Result<Vec<Process>, Error> {
         _ => return Err(Error::new(ErrorKind::Other, "Failed to get first process.")),
     }
     Ok(result)
+}
+
+pub unsafe fn get_process(name: String) -> Option<Process> {
+    match get_processes() {
+        Ok(processes) => {
+            for process in processes {
+                if process.str_szExeFile == name {
+                    return Some(process);
+                }
+            }
+            None
+        }
+        Err(_) => None,
+    }
 }
 
 fn parse_processentry32(proc_entry: &PROCESSENTRY32) -> Process {
