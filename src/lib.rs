@@ -41,39 +41,45 @@ pub struct ProcessModule {
     pub str_szExePath: String,
 }
 
-pub unsafe fn get_processes() -> Result<Vec<Process>, Error> {
-    let h_snapshot = match CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) {
-        Ok(handle) => handle,
-        Err(_) => {
-            return Err(Error::new(
-                ErrorKind::Other,
-                "Failed to create snapshot of the processes.",
-            ))
-        }
-    };
+pub fn get_processes() -> Result<Vec<Process>, Error> {
+    let h_snapshot;
+    unsafe {
+        match CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) {
+            Ok(handle) => h_snapshot = handle,
+            Err(_) => {
+                return Err(Error::new(
+                    ErrorKind::Other,
+                    "Failed to create snapshot of the processes.",
+                ))
+            }
+        };
+    }
     let mut proc_entry = PROCESSENTRY32 {
         dwSize: std::mem::size_of::<PROCESSENTRY32>() as u32,
         ..Default::default()
     };
     let mut result: Vec<Process> = Vec::new();
-    let proc = Process32First(h_snapshot, &mut proc_entry);
-    match proc.as_bool() {
-        true => {
-            result.push(parse_processentry32(&proc_entry));
-            loop {
-                let proc = Process32Next(h_snapshot, &mut proc_entry);
-                match proc.as_bool() {
-                    true => result.push(parse_processentry32(&proc_entry)),
-                    _ => break,
+    let proc;
+    unsafe {
+        proc = Process32First(h_snapshot, &mut proc_entry);
+        match proc.as_bool() {
+            true => {
+                result.push(parse_processentry32(&proc_entry));
+                loop {
+                    let proc = Process32Next(h_snapshot, &mut proc_entry);
+                    match proc.as_bool() {
+                        true => result.push(parse_processentry32(&proc_entry)),
+                        _ => break,
+                    }
                 }
             }
+            _ => return Err(Error::new(ErrorKind::Other, "Failed to get first process.")),
         }
-        _ => return Err(Error::new(ErrorKind::Other, "Failed to get first process.")),
     }
     Ok(result)
 }
 
-pub unsafe fn get_process(name: String) -> Option<Process> {
+pub fn get_process(name: String) -> Option<Process> {
     match get_processes() {
         Ok(processes) => {
             for process in processes {
@@ -87,28 +93,33 @@ pub unsafe fn get_process(name: String) -> Option<Process> {
     }
 }
 
-pub unsafe fn get_process_module(pid: u32, mod_name: String) -> Result<ProcessModule, Error> {
-    let h_snapshot = match CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid) {
-        Ok(handle) => handle,
-        Err(_) => {
-            return Err(Error::new(
-                ErrorKind::Other,
-                "Failed to create snapshot of the processes.",
-            ))
-        }
-    };
+pub fn get_process_module(pid: u32, mod_name: String) -> Result<ProcessModule, Error> {
+    let h_snapshot;
+    unsafe {
+        match CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid) {
+            Ok(handle) => h_snapshot = handle,
+            Err(_) => {
+                return Err(Error::new(
+                    ErrorKind::Other,
+                    "Failed to create snapshot of the processes.",
+                ))
+            }
+        };
+    }
     let mut mod_entry = MODULEENTRY32 {
         dwSize: std::mem::size_of::<MODULEENTRY32>() as u32,
         ..Default::default()
     };
-    match Module32First(h_snapshot, &mut mod_entry).as_bool() {
-        true => loop {
-            if wchar_arr_to_string(&mod_entry.szModule) == mod_name {
-                return Ok(parse_moduleentry32(&mod_entry));
-            }
-            Module32Next(h_snapshot, &mut mod_entry);
-        },
-        _ => return Err(Error::new(ErrorKind::Other, "Failed to get first module.")),
+    unsafe {
+        match Module32First(h_snapshot, &mut mod_entry).as_bool() {
+            true => loop {
+                if wchar_arr_to_string(&mod_entry.szModule) == mod_name {
+                    return Ok(parse_moduleentry32(&mod_entry));
+                }
+                Module32Next(h_snapshot, &mut mod_entry);
+            },
+            _ => return Err(Error::new(ErrorKind::Other, "Failed to get first module.")),
+        }
     }
 }
 
