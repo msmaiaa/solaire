@@ -1,14 +1,21 @@
+mod util;
 use std::ffi::c_void;
-use std::io::{Error, ErrorKind};
 use std::ptr;
 
-use windows::Win32::Foundation::*;
+use windows::Win32::Foundation::{CHAR, HANDLE, HINSTANCE};
 use windows::Win32::System::Diagnostics::Debug::{ReadProcessMemory, WriteProcessMemory};
-pub use windows::Win32::System::Diagnostics::ToolHelp::{
+use windows::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, Module32First, Module32Next, Process32First, Process32Next,
     MODULEENTRY32, PROCESSENTRY32, TH32CS_SNAPMODULE, TH32CS_SNAPMODULE32, TH32CS_SNAPPROCESS,
 };
-pub use windows::Win32::System::Threading::*;
+
+custom_error::custom_error! {pub MemError
+    ProcessSnapshotError = "Failed to create a snapshot of the processes.",
+    FirstProcessError = "Failed to get the first process.",
+        FirstModuleError = "Failed to get the first module of the process.",
+        ReadMemError = "Failed to read memory.",
+        WriteMemError = "Failed to write memory.",
+}
 
 #[allow(non_snake_case)]
 pub struct Process {
@@ -41,17 +48,12 @@ pub struct ProcessModule {
     pub str_szExePath: String,
 }
 
-pub fn get_processes() -> Result<Vec<Process>, Error> {
+pub fn get_processes() -> Result<Vec<Process>, MemError> {
     let h_snapshot;
     unsafe {
         match CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) {
             Ok(handle) => h_snapshot = handle,
-            Err(_) => {
-                return Err(Error::new(
-                    ErrorKind::Other,
-                    "Failed to create snapshot of the processes.",
-                ))
-            }
+            Err(_) => return Err(MemError::ProcessSnapshotError),
         };
     }
     let mut proc_entry = PROCESSENTRY32 {
@@ -64,16 +66,16 @@ pub fn get_processes() -> Result<Vec<Process>, Error> {
         proc = Process32First(h_snapshot, &mut proc_entry);
         match proc.as_bool() {
             true => {
-                result.push(parse_processentry32(&proc_entry));
+                result.push(build_process(&proc_entry));
                 loop {
                     let proc = Process32Next(h_snapshot, &mut proc_entry);
                     match proc.as_bool() {
-                        true => result.push(parse_processentry32(&proc_entry)),
+                        true => result.push(build_process(&proc_entry)),
                         _ => break,
                     }
                 }
             }
-            _ => return Err(Error::new(ErrorKind::Other, "Failed to get first process.")),
+            _ => return Err(MemError::FirstProcessError),
         }
     }
     Ok(result)
@@ -93,17 +95,12 @@ pub fn get_process(name: String) -> Option<Process> {
     }
 }
 
-pub fn get_process_module(pid: u32, mod_name: String) -> Result<ProcessModule, Error> {
+pub fn get_process_module(pid: u32, mod_name: String) -> Result<ProcessModule, MemError> {
     let h_snapshot;
     unsafe {
         match CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid) {
             Ok(handle) => h_snapshot = handle,
-            Err(_) => {
-                return Err(Error::new(
-                    ErrorKind::Other,
-                    "Failed to create snapshot of the processes.",
-                ))
-            }
+            Err(_) => return Err(MemError::ProcessSnapshotError),
         };
     }
     let mut mod_entry = MODULEENTRY32 {
@@ -113,17 +110,17 @@ pub fn get_process_module(pid: u32, mod_name: String) -> Result<ProcessModule, E
     unsafe {
         match Module32First(h_snapshot, &mut mod_entry).as_bool() {
             true => loop {
-                if wchar_arr_to_string(&mod_entry.szModule) == mod_name {
-                    return Ok(parse_moduleentry32(&mod_entry));
+                if util::wchar_arr_to_string(&mod_entry.szModule) == mod_name {
+                    return Ok(build_process_module(&mod_entry));
                 }
                 Module32Next(h_snapshot, &mut mod_entry);
             },
-            _ => return Err(Error::new(ErrorKind::Other, "Failed to get first module.")),
+            _ => return Err(MemError::FirstModuleError),
         }
     }
 }
 
-pub fn read_mem(handle: HANDLE, addr: u32) -> Result<usize, Error> {
+pub fn read_mem(handle: HANDLE, addr: u32) -> Result<usize, MemError> {
     let mut buf = 0usize;
     unsafe {
         match ReadProcessMemory(
@@ -136,12 +133,12 @@ pub fn read_mem(handle: HANDLE, addr: u32) -> Result<usize, Error> {
         .as_bool()
         {
             true => Ok(buf),
-            _ => return Err(Error::new(ErrorKind::Other, "Failed to read memory.")),
+            _ => return Err(MemError::ReadMemError),
         }
     }
 }
 
-pub fn write_mem<T: Copy>(handle: HANDLE, addr: u32, val: T) -> Result<(), Error> {
+pub fn write_mem<T: Copy>(handle: HANDLE, addr: u32, val: T) -> Result<(), MemError> {
     unsafe {
         match WriteProcessMemory(
             handle,
@@ -153,12 +150,12 @@ pub fn write_mem<T: Copy>(handle: HANDLE, addr: u32, val: T) -> Result<(), Error
         .as_bool()
         {
             true => Ok(()),
-            _ => return Err(Error::new(ErrorKind::Other, "Failed to write memory.")),
+            _ => return Err(MemError::WriteMemError),
         }
     }
 }
 
-fn parse_moduleentry32(mod_entry: &MODULEENTRY32) -> ProcessModule {
+fn build_process_module(mod_entry: &MODULEENTRY32) -> ProcessModule {
     ProcessModule {
         th32ModuleID: mod_entry.th32ModuleID,
         th32ProcessID: mod_entry.th32ProcessID,
@@ -169,15 +166,15 @@ fn parse_moduleentry32(mod_entry: &MODULEENTRY32) -> ProcessModule {
         hModule: mod_entry.hModule,
         dwSize: mod_entry.dwSize,
         szModule: mod_entry.szModule,
-        str_szModule: wchar_arr_to_string(&mod_entry.szModule),
+        str_szModule: util::wchar_arr_to_string(&mod_entry.szModule),
         szExePath: mod_entry.szExePath,
-        str_szExePath: wchar_arr_to_string(&mod_entry.szExePath),
+        str_szExePath: util::wchar_arr_to_string(&mod_entry.szExePath),
     }
 }
 
-fn parse_processentry32(proc_entry: &PROCESSENTRY32) -> Process {
+fn build_process(proc_entry: &PROCESSENTRY32) -> Process {
     Process {
-        str_szExeFile: wchar_arr_to_string(&proc_entry.szExeFile),
+        str_szExeFile: util::wchar_arr_to_string(&proc_entry.szExeFile),
         dwSize: proc_entry.dwSize,
         cntUsage: proc_entry.cntUsage,
         th32ProcessID: proc_entry.th32ProcessID,
@@ -189,15 +186,4 @@ fn parse_processentry32(proc_entry: &PROCESSENTRY32) -> Process {
         dwFlags: proc_entry.dwFlags,
         szExeFile: proc_entry.szExeFile,
     }
-}
-
-fn wchar_arr_to_string(arr: &[CHAR]) -> String {
-    let mut result = String::new();
-    for c in arr.iter() {
-        if c.0 == 0 {
-            break;
-        }
-        result.push(c.0 as u8 as char);
-    }
-    result
 }
