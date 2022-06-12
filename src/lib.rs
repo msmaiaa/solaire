@@ -1,7 +1,14 @@
+use std::ffi::c_void;
 use std::io::{Error, ErrorKind};
+use std::ptr;
 
 use windows::Win32::Foundation::*;
-use windows::Win32::System::Diagnostics::ToolHelp::*;
+use windows::Win32::System::Diagnostics::Debug::ReadProcessMemory;
+pub use windows::Win32::System::Diagnostics::ToolHelp::{
+    CreateToolhelp32Snapshot, Module32First, Module32Next, Process32First, Process32Next,
+    MODULEENTRY32, PROCESSENTRY32, TH32CS_SNAPMODULE, TH32CS_SNAPMODULE32, TH32CS_SNAPPROCESS,
+};
+pub use windows::Win32::System::Threading::*;
 
 #[allow(non_snake_case)]
 pub struct Process {
@@ -102,6 +109,24 @@ pub unsafe fn get_process_module(pid: u32, mod_name: String) -> Result<ProcessMo
             Module32Next(h_snapshot, &mut mod_entry);
         },
         _ => return Err(Error::new(ErrorKind::Other, "Failed to get first module.")),
+    }
+}
+
+pub fn read_mem(handle: HANDLE, addr: u32) -> Result<usize, Error> {
+    let mut buf = 0usize;
+    unsafe {
+        match ReadProcessMemory(
+            handle,
+            addr as *mut c_void,
+            ptr::addr_of_mut!(buf) as *mut c_void,
+            std::mem::size_of::<usize>(),
+            ptr::null_mut(),
+        )
+        .as_bool()
+        {
+            true => Ok(buf),
+            _ => return Err(Error::new(ErrorKind::Other, "Failed to read memory.")),
+        }
     }
 }
 
