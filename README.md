@@ -8,8 +8,8 @@ This is a crate for memory manipulation (Windows only) that i'm creating to help
 - [x] Get process by name
 - [x] Get process module
 - [x] Read process memory
+- [x] Write process memory
 - [ ] Get key state and stuff
-- [ ] Write process memory
 - [ ] Find dynamic address
 - [ ] Patch memory location
 - [ ] Pattern scanning
