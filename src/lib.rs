@@ -3,7 +3,7 @@ use std::io::{Error, ErrorKind};
 use std::ptr;
 
 use windows::Win32::Foundation::*;
-use windows::Win32::System::Diagnostics::Debug::ReadProcessMemory;
+use windows::Win32::System::Diagnostics::Debug::{ReadProcessMemory, WriteProcessMemory};
 pub use windows::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, Module32First, Module32Next, Process32First, Process32Next,
     MODULEENTRY32, PROCESSENTRY32, TH32CS_SNAPMODULE, TH32CS_SNAPMODULE32, TH32CS_SNAPPROCESS,
@@ -137,6 +137,23 @@ pub fn read_mem(handle: HANDLE, addr: u32) -> Result<usize, Error> {
         {
             true => Ok(buf),
             _ => return Err(Error::new(ErrorKind::Other, "Failed to read memory.")),
+        }
+    }
+}
+
+pub fn write_mem<T: Copy>(handle: HANDLE, addr: u32, val: T) -> Result<(), Error> {
+    unsafe {
+        match WriteProcessMemory(
+            handle,
+            addr as *mut c_void,
+            ptr::addr_of!(val) as *mut c_void,
+            std::mem::size_of::<T>(),
+            ptr::null_mut(),
+        )
+        .as_bool()
+        {
+            true => Ok(()),
+            _ => return Err(Error::new(ErrorKind::Other, "Failed to write memory.")),
         }
     }
 }
