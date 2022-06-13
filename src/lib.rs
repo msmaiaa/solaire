@@ -31,6 +31,7 @@ pub struct Process {
     pub pcPriClassBase: i32,
     pub dwFlags: u32,
     pub szExeFile: [CHAR; 260],
+    ///	szExeFile converted to String
     pub str_szExeFile: String,
 }
 
@@ -46,10 +47,22 @@ pub struct ProcessModule {
     pub hModule: HINSTANCE,
     pub szModule: [CHAR; 256],
     pub szExePath: [CHAR; 260],
+    ///	szModule converted to String
     pub str_szModule: String,
+    ///	szExePath converted to String
     pub str_szExePath: String,
 }
 
+/// Returns a list of the processes running on the system.
+/// ## Example
+/// ```rust
+/// use mem::process::get_processes;
+///
+/// let processes = get_processes();
+/// for process in processes {
+/// 	 println!("Process id: {} - Process executable: {}", process.th32ProcessID, process.str_szExeFile);
+/// }
+/// ```
 pub fn get_processes() -> Result<Vec<Process>, MemError> {
     let h_snapshot;
     unsafe {
@@ -83,7 +96,23 @@ pub fn get_processes() -> Result<Vec<Process>, MemError> {
     Ok(result)
 }
 
-pub fn get_process(name: String) -> Option<Process> {
+/// Finds a Process by the given executable name.
+///
+/// ## Arguments
+///
+/// * `name` - The name of the executable to search for
+///
+/// ## Example
+///
+/// ```rust
+/// use mem::process::get_process_by_name;
+///
+/// let proc_name = "csgo.exe"
+/// let process = get_process_by_name(proc_name.to_string()).unwrap();
+///
+/// println!("Process id: {}", process.th32ProcessID);
+/// ```
+pub fn get_process_by_name(name: String) -> Option<Process> {
     match get_processes() {
         Ok(processes) => {
             for process in processes {
@@ -97,6 +126,23 @@ pub fn get_process(name: String) -> Option<Process> {
     }
 }
 
+/// Returns a module loaded in the given process.
+///
+/// ## Arguments
+///
+/// * `pid` - The process ID of the process to search for the module in.
+/// * `mod_name` - The name of the module to search for.
+///
+/// ## Example
+///
+/// ```rust
+/// let process = memoryrs::get_process_by_name("csgo.exe").unwrap();
+///
+/// let module_name = "client.dll";
+/// let module = memoryrs::get_process_module(process.th32ProcessID, module_name.to_string()).unwrap();
+///
+/// println!("Module base address: {}", module.modBaseAddr);
+/// ```
 pub fn get_process_module(pid: u32, mod_name: String) -> Result<ProcessModule, MemError> {
     let h_snapshot;
     unsafe {
@@ -122,6 +168,30 @@ pub fn get_process_module(pid: u32, mod_name: String) -> Result<ProcessModule, M
     }
 }
 
+/// Reads memory from the given process.
+/// ## Arguments
+/// * `handle` - The HANDLE of the process to read from.
+/// * `address` - The address to read from.
+///
+/// ## Example
+/// ```rust
+/// let process_data = memoryrs::get_process_by_name("csgo.exe").unwrap();
+///
+/// let module_name = "client.dll";
+/// let client_module = memoryrs::get_process_module(process_data.th32ProcessID, module_name.to_string()).unwrap();
+///
+/// let local_player_offset: u32 = 0x1234;
+///
+/// let process_handle;
+/// unsafe {
+///   process_handle = memoryrs::OpenProcess(memoryrs::PROCESS_ALL_ACCESS, false, process_data.th32ProcessID).unwrap();
+/// }
+///
+/// let local_player_addr = match memoryrs::read_mem(handle, local_player_offset + proc_module.modBaseAddr as u32) {
+/// 	Ok(addr) => println!("Local player address: {}", addr),
+/// 	Err(_) => _
+/// };
+///```
 pub fn read_mem<T: ToPrimitive>(handle: HANDLE, addr: T) -> Result<T, MemError> {
     let mut buf: T = unsafe { std::mem::zeroed() };
     unsafe {
@@ -140,6 +210,34 @@ pub fn read_mem<T: ToPrimitive>(handle: HANDLE, addr: T) -> Result<T, MemError> 
     }
 }
 
+/// Writes a value to an address of a given process.
+/// ## Arguments
+/// * `handle` - The HANDLE of the process to read from.
+/// * `address` - The address to read from.
+/// * `value` - The value to write.
+///
+/// ## Example
+/// ```rust
+/// let process_data = memoryrs::get_process_by_name("csgo.exe").unwrap();
+///
+/// let module_name = "client.dll";
+/// let client_module = memoryrs::get_process_module(process_data.th32ProcessID, module_name.to_string()).unwrap();
+///
+/// let local_player_offset: u32 = 0x1234;
+///
+/// let process_handle;
+/// unsafe {
+///   process_handle = memoryrs::OpenProcess(memoryrs::PROCESS_ALL_ACCESS, false, process_data.th32ProcessID).unwrap();
+/// }
+///
+/// let forceattack_address: u32 = 0x1234;
+///
+/// //	shoot
+/// memoryrs::write_mem(
+/// 	handle,
+/// 	client_module.modBaseAddr as u32 + forceattack_offset,
+/// 	4);
+///```
 pub fn write_mem<T: Copy, K: ToPrimitive>(handle: HANDLE, addr: K, val: T) -> Result<(), MemError> {
     unsafe {
         match WriteProcessMemory(
