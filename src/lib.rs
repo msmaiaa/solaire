@@ -1,6 +1,8 @@
 mod util;
+use num::traits::ToPrimitive;
 use std::ffi::c_void;
 use std::ptr;
+pub use windows::Win32::System::Threading::{OpenProcess, PROCESS_ALL_ACCESS};
 
 use windows::Win32::Foundation::{CHAR, HANDLE, HINSTANCE};
 use windows::Win32::System::Diagnostics::Debug::{ReadProcessMemory, WriteProcessMemory};
@@ -120,14 +122,14 @@ pub fn get_process_module(pid: u32, mod_name: String) -> Result<ProcessModule, M
     }
 }
 
-pub fn read_mem(handle: HANDLE, addr: u32) -> Result<usize, MemError> {
-    let mut buf = 0usize;
+pub fn read_mem<T: ToPrimitive>(handle: HANDLE, addr: T) -> Result<T, MemError> {
+    let mut buf: T = unsafe { std::mem::zeroed() };
     unsafe {
         match ReadProcessMemory(
             handle,
-            addr as *mut c_void,
+            addr.to_usize().unwrap() as *mut c_void,
             ptr::addr_of_mut!(buf) as *mut c_void,
-            std::mem::size_of::<usize>(),
+            std::mem::size_of::<T>(),
             ptr::null_mut(),
         )
         .as_bool()
@@ -138,11 +140,11 @@ pub fn read_mem(handle: HANDLE, addr: u32) -> Result<usize, MemError> {
     }
 }
 
-pub fn write_mem<T: Copy>(handle: HANDLE, addr: u32, val: T) -> Result<(), MemError> {
+pub fn write_mem<T: Copy, K: ToPrimitive>(handle: HANDLE, addr: K, val: T) -> Result<(), MemError> {
     unsafe {
         match WriteProcessMemory(
             handle,
-            addr as *mut c_void,
+            addr.to_usize().unwrap() as *mut c_void,
             ptr::addr_of!(val) as *mut c_void,
             std::mem::size_of::<T>(),
             ptr::null_mut(),
