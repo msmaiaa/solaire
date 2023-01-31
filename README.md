@@ -11,3 +11,7 @@
 - [ ] Internal find multilevel ptr
 - [ ] Patch memory location
 - [ ] Pattern scanning
+
+#### Ghetto testing on running processes
+
+cargo run --bin external -- <ac/csgo> pid
