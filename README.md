@@ -2,12 +2,12 @@
 
 #### Todo:
 
-- [x] Get process list
-- [x] Get process by name
-- [x] Get process module
-- [x] Read process memory
-- [x] Write process memory
-- [ ] Get key state and stuff
-- [ ] Find dynamic address
+- [ ] Get process list
+- [ ] Get process by name
+- [X] Get process module
+- [X] External read memory
+- [X] External write memory
+- [X] External find multilevel ptr
+- [ ] Internal find multilevel ptr
 - [ ] Patch memory location
 - [ ] Pattern scanning
