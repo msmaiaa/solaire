@@ -1,4 +1,4 @@
-use std::ffi::c_void;
+use std::{ffi::c_void, time::Duration};
 
 use clap::{Args, Parser};
 use memoryrs::{core::*, external::*};
@@ -25,6 +25,7 @@ struct PidArg {
 fn test_ac_x86(proc_id: u32) {
     let addr_local_player = 0x10f4f4;
     let current_weapon_ammo_offsets = vec![0x374, 0x14, 0x0];
+    let recoil_fn_addr = 0x63786;
 
     let h_proc = open_process(proc_id).unwrap();
 
@@ -54,6 +55,19 @@ fn test_ac_x86(proc_id: u32) {
     tracing::info!(
         "new ammo amount: {:?}",
         read_mem_u32(h_proc, ammo_addr as usize).unwrap()
+    );
+
+    nop_32(module_base_addr as u32 + recoil_fn_addr, 10, h_proc);
+    tracing::info!("nopped recoil, waiting 5 seconds to restore");
+
+    std::thread::sleep(Duration::from_secs(5));
+
+    let mut original_bytes: [u8; 10] = [0x50, 0x8d, 0x4c, 0x24, 0x1c, 0x51, 0x8b, 0xce, 0xff, 0xd2];
+    patch_u32(
+        module_base_addr as u32 + recoil_fn_addr,
+        original_bytes.as_mut_ptr(),
+        10,
+        h_proc,
     );
     unsafe {
         CloseHandle(h_proc);

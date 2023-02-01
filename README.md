@@ -8,8 +8,9 @@
 - [X] External read memory
 - [X] External write memory
 - [X] External find multilevel ptr
+- [X] External patch memory location
+- [X] External nop memory location
 - [ ] Internal find multilevel ptr
-- [ ] Patch memory location
 - [ ] Pattern scanning
 
 #### Ghetto testing on running processes

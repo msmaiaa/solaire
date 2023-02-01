@@ -2,7 +2,10 @@ use std::{ffi::c_void, mem::size_of, ptr::addr_of};
 
 use windows::Win32::{
     Foundation::{GetLastError, HANDLE},
-    System::Diagnostics::Debug::{ReadProcessMemory, WriteProcessMemory},
+    System::{
+        Diagnostics::Debug::{ReadProcessMemory, WriteProcessMemory},
+        Memory::{VirtualProtectEx, PAGE_EXECUTE_READWRITE, PAGE_PROTECTION_FLAGS},
+    },
 };
 use winsafe::co::ERROR;
 
@@ -102,4 +105,50 @@ pub fn write_mem<T>(h_proc: HANDLE, address: UINTPTR_T, value: T) -> Result<(), 
         true => Ok(()),
         false => Err(unsafe { GetLastError().0.into() }),
     };
+}
+
+macro_rules! gen_patch {
+    ($_type: ty) => {
+        paste::paste! {
+            pub fn [<patch_$_type>](dest: $_type, src: *const u8, size: usize, h_proc: HANDLE) {
+                let mut old_protect = PAGE_PROTECTION_FLAGS::default();
+                unsafe {
+                    VirtualProtectEx(
+                        h_proc,
+                        dest as *mut c_void,
+                        size,
+                        PAGE_EXECUTE_READWRITE,
+                        &mut old_protect,
+                    );
+                    WriteProcessMemory(
+                        h_proc,
+                        dest as *mut c_void,
+                        src as *mut c_void,
+                        size,
+                        None,
+                    );
+                    VirtualProtectEx(
+                        h_proc,
+                        dest as *mut c_void,
+                        size,
+                        old_protect,
+                        &mut old_protect,
+                    );
+                }
+            }
+        }
+    };
+}
+
+gen_patch!(u64);
+gen_patch!(u32);
+
+pub fn nop_32(dest: u32, size: usize, h_proc: HANDLE) {
+    let nop_array: *mut u8 = vec![0x90; size].as_mut_ptr();
+    patch_u32(dest, nop_array, size, h_proc);
+}
+
+pub fn nop_64(dest: u64, size: usize, h_proc: HANDLE) {
+    let nop_array: *mut u8 = vec![0x90; size].as_mut_ptr();
+    patch_u64(dest, nop_array, size, h_proc);
 }
