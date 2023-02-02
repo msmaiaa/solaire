@@ -1,25 +1,24 @@
 use std::{ffi::c_void, time::Duration};
 
-use clap::{Args, Parser};
+use clap::{Args, Parser, Subcommand};
 use memoryrs::{core::*, external::*};
 use tracing::Level;
 use tracing_subscriber::FmtSubscriber;
 use windows::Win32::Foundation::CloseHandle;
 
 #[derive(Parser)]
-enum Cli {
-    ///  Assault Cube
-    Ac(PidArg),
-
-    /// Csgo
-    Csgo(PidArg),
+struct Cli {
+    #[command(subcommand)]
+    command: Option<CliCommands>,
 }
 
-#[derive(Args, Debug)]
-struct PidArg {
-    /// Process ID
-    #[clap(value_parser)]
-    pid: u32,
+#[derive(Subcommand)]
+enum CliCommands {
+    ///  Assault Cube
+    Ac,
+
+    /// Csgo
+    Csgo,
 }
 
 fn test_ac_x86(proc_id: u32) {
@@ -81,10 +80,16 @@ fn main() {
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
     let cli = Cli::parse();
-    match cli {
-        Cli::Ac(pid) => test_ac_x86(pid.pid),
-        _ => {
-            unimplemented!();
+
+    if let Some(cmd) = cli.command {
+        match cmd {
+            CliCommands::Ac => {
+                let p = get_process_by_exec("ac_client.exe")
+                    .expect("Error on get_process_by_exec")
+                    .expect("Couldn't find ac_client.exe process");
+                test_ac_x86(p.th32ProcessID);
+            }
+            CliCommands::Csgo => {}
         }
     }
 }

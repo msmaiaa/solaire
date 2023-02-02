@@ -2,8 +2,9 @@
 
 #### Todo:
 
-- [ ] Get process list
-- [ ] Get process by name
+- [X] Get process list
+- [X] Get process id
+- [X] Get process by name
 - [X] Get process module
 - [X] External read memory
 - [X] External write memory
@@ -15,4 +16,4 @@
 
 #### Ghetto testing on running processes
 
-cargo run --bin external -- <ac/csgo> pid
+cargo run --bin external -- <ac/csgo>
