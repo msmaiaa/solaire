@@ -14,6 +14,6 @@
 - [ ] Internal find multilevel ptr
 - [ ] Pattern scanning
 
-#### Ghetto testing on running processes
+#### Run tests on Assault Cube
 
-cargo run --bin external -- <ac/csgo>
+cargo run --bin external -- ac

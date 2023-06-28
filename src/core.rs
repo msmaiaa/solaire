@@ -1,76 +1,11 @@
-use std::ffi::c_void;
-
 use windows::Win32::Foundation::{CHAR, HANDLE};
 use windows::Win32::System::Diagnostics::ToolHelp::{
-    CreateToolhelp32Snapshot, Process32First, Process32Next, PROCESSENTRY32, TH32CS_SNAPPROCESS,
+    CreateToolhelp32Snapshot, Module32First, Module32Next, Process32First, Process32Next,
+    MODULEENTRY32, PROCESSENTRY32, TH32CS_SNAPMODULE, TH32CS_SNAPMODULE32, TH32CS_SNAPPROCESS,
 };
 use windows::Win32::System::Threading::{OpenProcess, PROCESS_ALL_ACCESS};
-use winsafe::co::{self, ERROR};
-use winsafe::{prelude::kernel_Hprocesslist, HPROCESSLIST};
 
 use crate::util::wchar_arr_to_string;
-
-#[allow(non_camel_case_types)]
-pub type UINTPTR_T = *mut c_void;
-
-pub enum MemError {
-    ProcessSnapshotError,
-    FirstProcessError,
-}
-
-pub fn get_module_base_addr<S: Into<String>>(
-    proc_id: u32,
-    mod_name: S,
-) -> Result<Option<UINTPTR_T>, ERROR> {
-    let mod_name = mod_name.into();
-    let hpl = HPROCESSLIST::CreateToolhelp32Snapshot(
-        co::TH32CS::SNAPMODULE | co::TH32CS::SNAPMODULE32,
-        Some(proc_id),
-    )?;
-
-    for _mod in hpl.iter_modules() {
-        if let Ok(mod_entry) = _mod {
-            if mod_entry.szModule() == mod_name {
-                return Ok(Some(mod_entry.modBaseAddr));
-            }
-        }
-    }
-    Ok(None)
-}
-
-pub fn get_process_by_id(pid: u32) -> Result<Option<Process>, windows::core::Error> {
-    get_process_list().map(|p| p.into_iter().find(|p| p.th32ProcessID == pid))
-}
-
-//  lazy but works for now
-pub fn get_process_by_exec<S: Into<String>>(
-    name: S,
-) -> Result<Option<Process>, windows::core::Error> {
-    let name = name.into();
-    get_process_list().map(|p| p.into_iter().find(|p| p.str_szExeFile == name))
-}
-
-pub fn get_process_list() -> Result<Vec<Process>, windows::core::Error> {
-    let mut processes = Vec::new();
-    unsafe {
-        let h_snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)?;
-
-        let mut proc_entry = PROCESSENTRY32::default();
-        proc_entry.dwSize = std::mem::size_of::<PROCESSENTRY32>() as u32;
-
-        if !Process32First(h_snap, &mut proc_entry).as_bool() {
-            return Ok(processes);
-        }
-
-        loop {
-            processes.push(proc_entry.into());
-            if !Process32Next(h_snap, &mut proc_entry).as_bool() {
-                break;
-            }
-        }
-    }
-    Ok(processes)
-}
 
 #[allow(non_snake_case)]
 #[derive(Debug, Clone)]
@@ -86,6 +21,97 @@ pub struct Process {
     pub dwFlags: u32,
     pub szExeFile: [CHAR; 260],
     pub str_szExeFile: String,
+}
+
+/// Iterator over all processes
+#[derive(Debug)]
+pub struct ProcessList {
+    proc: PROCESSENTRY32,
+    h_snap: HANDLE,
+    first: bool,
+}
+
+impl ProcessList {
+    pub fn new() -> Result<Self, windows::core::Error> {
+        let mut proc = PROCESSENTRY32::default();
+        proc.dwSize = std::mem::size_of::<PROCESSENTRY32>() as u32;
+        let h_snap = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)? };
+        if !unsafe { Process32First(h_snap, &mut proc).as_bool() } {
+            return Err(windows::core::Error::from_win32());
+        }
+        Ok(Self {
+            proc,
+            h_snap,
+            first: true,
+        })
+    }
+}
+
+impl Iterator for ProcessList {
+    type Item = Process;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.first {
+            self.first = false;
+        } else if !unsafe { Process32Next(self.h_snap, &mut self.proc).as_bool() } {
+            return None;
+        }
+        Some(self.proc.into())
+    }
+}
+
+impl Process {
+    pub fn get_module<T: Into<String>>(
+        &self,
+        mod_name: T,
+    ) -> Result<Option<MODULEENTRY32>, windows::core::Error> {
+        let mod_name = mod_name.into();
+
+        unsafe {
+            let h_snap = CreateToolhelp32Snapshot(
+                TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32,
+                self.th32ProcessID,
+            )?;
+            let mut mod_entry = MODULEENTRY32::default();
+            mod_entry.dwSize = std::mem::size_of::<MODULEENTRY32>() as u32;
+
+            if !Module32First(h_snap, &mut mod_entry).as_bool() {
+                return Ok(None);
+            }
+
+            loop {
+                if wchar_arr_to_string(&mod_entry.szModule) == mod_name {
+                    return Ok(Some(mod_entry));
+                }
+                if !Module32Next(h_snap, &mut mod_entry).as_bool() {
+                    break;
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    pub fn module_base_addr<T: Into<String>>(
+        &self,
+        mod_name: T,
+    ) -> Result<Option<*mut u8>, windows::core::Error> {
+        self.get_module(mod_name).map(|m| m.map(|m| m.modBaseAddr))
+    }
+
+    pub fn open(&self) -> Result<HANDLE, windows::core::Error> {
+        unsafe { OpenProcess(PROCESS_ALL_ACCESS, false, self.th32ProcessID) }
+    }
+
+    pub fn from_pid(pid: u32) -> Result<Option<Process>, windows::core::Error> {
+        Ok(ProcessList::new()?.find(|p| p.th32ProcessID == pid))
+    }
+
+    pub fn from_executable_name<S: Into<String>>(
+        name: S,
+    ) -> Result<Option<Process>, windows::core::Error> {
+        let name = name.into();
+        Ok(ProcessList::new()?.find(|p| p.str_szExeFile == name))
+    }
 }
 
 impl From<PROCESSENTRY32> for Process {
@@ -106,6 +132,18 @@ impl From<PROCESSENTRY32> for Process {
     }
 }
 
-pub fn open_process(proc_id: u32) -> Result<HANDLE, windows::core::Error> {
-    unsafe { OpenProcess(PROCESS_ALL_ACCESS, false, proc_id) }
+#[cfg(target_os = "windows")]
+#[cfg(test)]
+mod test {
+    use super::ProcessList;
+
+    #[test]
+    fn process_iterator_sanity_check() {
+        let mut processes = vec![];
+        for process in ProcessList::new().unwrap() {
+            processes.push(process);
+            break;
+        }
+        assert!(processes.len() > 0);
+    }
 }

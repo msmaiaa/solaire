@@ -1,6 +1,6 @@
 use std::{ffi::c_void, time::Duration};
 
-use clap::{Args, Parser, Subcommand};
+use clap::{Parser, Subcommand};
 use memoryrs::{core::*, external::*};
 use tracing::Level;
 use tracing_subscriber::FmtSubscriber;
@@ -16,27 +16,22 @@ struct Cli {
 enum CliCommands {
     ///  Assault Cube
     Ac,
-
-    /// Csgo
-    Csgo,
 }
 
-fn test_ac_x86(proc_id: u32) {
+fn test_ac_x86(p: Process) {
     let addr_local_player = 0x10f4f4;
     let current_weapon_ammo_offsets = vec![0x374, 0x14, 0x0];
     let recoil_fn_addr = 0x63786;
 
-    let h_proc = open_process(proc_id).unwrap();
+    let h_proc = p.open().unwrap();
 
-    let module_base_addr = get_module_base_addr(proc_id, "ac_client.exe")
-        .unwrap()
-        .unwrap();
+    let module_base_addr = p.module_base_addr("ac_client.exe").unwrap().unwrap();
     tracing::info!("module_base_addr: {:?}", module_base_addr);
 
     let addr_local_player_ptr = module_base_addr as u32 + addr_local_player;
     tracing::info!("local player pointer address: {:x?}", addr_local_player_ptr);
 
-    let ammo_addr = get_multilevel_ptr_x86(
+    let ammo_addr = get_multilevel_ptr_u32(
         h_proc,
         addr_local_player_ptr as *mut c_void,
         current_weapon_ammo_offsets,
@@ -84,12 +79,11 @@ fn main() {
     if let Some(cmd) = cli.command {
         match cmd {
             CliCommands::Ac => {
-                let p = get_process_by_exec("ac_client.exe")
+                let p = Process::from_executable_name("ac_client.exe")
                     .expect("Error on get_process_by_exec")
                     .expect("Couldn't find ac_client.exe process");
-                test_ac_x86(p.th32ProcessID);
+                test_ac_x86(p);
             }
-            CliCommands::Csgo => {}
         }
     }
 }

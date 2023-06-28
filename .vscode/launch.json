@@ -1,0 +1,20 @@
+{
+	"version": "0.2.0",
+	"configurations": [
+		{
+			"name": "external ac",
+			"type": "cppvsdbg",
+			"request": "launch",
+			"program": "${workspaceRoot}/target/debug/external.exe",
+			"preLaunchTask": "rust: cargo build",
+			"args": [
+				"ac",
+				"2748"
+			],
+			"stopAtEntry": false,
+			"cwd": "${workspaceFolder}",
+			"environment": [],
+			"console": "externalTerminal"
+		}
+	]
+}

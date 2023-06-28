@@ -1,17 +1,14 @@
 use std::{ffi::c_void, mem::size_of, ptr::addr_of};
 
 use windows::Win32::{
-    Foundation::{GetLastError, HANDLE},
+    Foundation::{GetLastError, HANDLE, WIN32_ERROR},
     System::{
         Diagnostics::Debug::{ReadProcessMemory, WriteProcessMemory},
         Memory::{VirtualProtectEx, PAGE_EXECUTE_READWRITE, PAGE_PROTECTION_FLAGS},
     },
 };
-use winsafe::co::ERROR;
 
-use crate::core::UINTPTR_T;
-
-pub fn read_mem<T>(h_proc: HANDLE, address: usize) -> Result<T, ERROR> {
+pub fn read_mem<T>(h_proc: HANDLE, address: usize) -> Result<T, WIN32_ERROR> {
     let result: T = unsafe { std::mem::zeroed() };
     let ok;
     unsafe {
@@ -25,22 +22,22 @@ pub fn read_mem<T>(h_proc: HANDLE, address: usize) -> Result<T, ERROR> {
     }
     return match ok.as_bool() {
         true => Ok(result),
-        false => Err(unsafe { GetLastError().0.into() }),
+        false => Err(unsafe { GetLastError() }),
     };
 }
 
 macro_rules! gen_multilevel_ptr {
-    ($arch: ty, $label: ident) => {
+    ($_type: ty) => {
         paste::paste! {
-            pub fn [<get_multilevel_ptr_$label>](
+            pub fn [<get_multilevel_ptr_$_type>](
                 h_proc: HANDLE,
-                starting_address: UINTPTR_T,
-                offsets: Vec<$arch>,
-            ) -> Result<UINTPTR_T, ERROR> {
-                let mut addr = starting_address as $arch;
+                starting_address: *mut c_void,
+                offsets: Vec<$_type>,
+            ) -> Result<*mut c_void, WIN32_ERROR> {
+                let mut addr = starting_address as $_type;
 
                 for offset in offsets {
-                        addr = [<read_mem_$arch>](h_proc, addr as usize)?;
+                        addr = [<read_mem_$_type>](h_proc, addr as usize)?;
                     addr = addr + offset;
                 }
                 Ok(addr as *mut c_void)
@@ -50,26 +47,13 @@ macro_rules! gen_multilevel_ptr {
     };
 }
 
-gen_multilevel_ptr!(u32, x86);
-gen_multilevel_ptr!(u64, x64);
-
-/// gen_mem_read!(u32) expands to:
-/// ```
-/// pub fn read_mem_u32(h_proc: HANDLE, address: usize) -> Result<u32, ERROR> {
-///     read_mem(h_proc, address);
-/// }
-/// ```
-/// /// gen_mem_read!(cstring, std::ffi::CString) expands to:
-/// ```
-/// pub fn read_mem_cstring(h_proc: HANDLE, address: usize) -> Result<std::ffi::CString, ERROR> {
-///     read_mem(h_proc, address);
-/// }
-/// ```
+gen_multilevel_ptr!(u32);
+gen_multilevel_ptr!(u64);
 
 macro_rules! gen_mem_read {
     ($func_name: ident, $return_type: ty) => {
         paste::paste! {
-            pub fn [<read_mem_$func_name>](h_proc: HANDLE, address: usize) -> Result<$return_type, ERROR> {
+            pub fn [<read_mem_$func_name>](h_proc: HANDLE, address: usize) -> Result<$return_type, WIN32_ERROR> {
                 read_mem(h_proc, address)
             }
 
@@ -77,7 +61,7 @@ macro_rules! gen_mem_read {
     };
     ($return_type: ty) => {
         paste::paste! {
-            pub fn [<read_mem_$return_type>](h_proc: HANDLE, address: usize) -> Result<$return_type, ERROR> {
+            pub fn [<read_mem_$return_type>](h_proc: HANDLE, address: usize) -> Result<$return_type, WIN32_ERROR> {
                 read_mem(h_proc, address)
             }
         }
@@ -90,7 +74,7 @@ gen_mem_read!(f32);
 gen_mem_read!(u64);
 gen_mem_read!(f64);
 
-pub fn write_mem<T>(h_proc: HANDLE, address: UINTPTR_T, value: T) -> Result<(), ERROR> {
+pub fn write_mem<T>(h_proc: HANDLE, address: *mut c_void, value: T) -> Result<(), WIN32_ERROR> {
     let ok;
     unsafe {
         ok = WriteProcessMemory(
@@ -103,7 +87,7 @@ pub fn write_mem<T>(h_proc: HANDLE, address: UINTPTR_T, value: T) -> Result<(), 
     }
     return match ok.as_bool() {
         true => Ok(()),
-        false => Err(unsafe { GetLastError().0.into() }),
+        false => Err(unsafe { GetLastError() }),
     };
 }
 
