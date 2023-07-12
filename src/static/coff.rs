@@ -19,7 +19,7 @@ pub fn parse_coff(cursor: &mut Cursor) -> CoffHeader {
     header
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CoffHeader {
     pub machine: Machine,
     pub numbers_of_sections: u16,

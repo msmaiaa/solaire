@@ -101,7 +101,7 @@ pub fn parse_opt_header(cursor: &mut Cursor) -> OptionalHeader {
 }
 
 /// https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#optional-header-data-directories-image-only
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct DataDirectories {
     export_table: ImageDataDirectory,
     import_table: ImageDataDirectory,
@@ -121,14 +121,14 @@ struct DataDirectories {
     reserved: ImageDataDirectory,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct ImageDataDirectory {
     virtual_address: u32,
     size: u32,
 }
 
 /// https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#optional-header-windows-specific-fields-image-only
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct WindowsSpecificFields {
     image_base: ImageBase,
     section_alignment: u32,
@@ -153,7 +153,7 @@ struct WindowsSpecificFields {
     number_of_rva_and_sizes: u32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum WindowsSubsystem {
     UNKNOWN,
     NATIVE,
@@ -191,38 +191,38 @@ impl From<u16> for WindowsSubsystem {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum ImageBase {
     PE32(u32),
     PE32_PLUS(u64),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum SizeOfStackReserve {
     PE32(u32),
     PE32_PLUS(u64),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum SizeOfStackCommit {
     PE32(u32),
     PE32_PLUS(u64),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum SizeOfHeapReserve {
     PE32(u32),
     PE32_PLUS(u64),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum SizeOfHeapCommit {
     PE32(u32),
     PE32_PLUS(u64),
 }
 
 /// https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#optional-header-standard-fields-image-only
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct StandardFields {
     magic: ExecutableKind,
     major_linker_version: u8,
@@ -236,14 +236,14 @@ struct StandardFields {
 }
 
 /// https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#optional-header-image-only
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct OptionalHeader {
     std_fields: StandardFields,
     win_specific_fields: WindowsSpecificFields,
     data_directories: DataDirectories,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct PortableExecutable {
     executable_kind: ExecutableKind,
 }
@@ -277,7 +277,7 @@ impl FromStr for DllCharacteristics {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum ExecutableKind {
     PE32,
     PE32_PLUS,

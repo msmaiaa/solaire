@@ -19,7 +19,7 @@ pub fn parse_section_table(cursor: &mut Cursor) -> SectionTable {
 }
 
 /// https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#section-table-section-headers
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SectionTable {
     name: String,
     virtual_size: u32,
