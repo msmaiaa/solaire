@@ -1,7 +1,7 @@
 use std::{ffi::c_void, time::Duration};
 
 use clap::{Parser, Subcommand};
-use memoryrs::{external::*, process::*};
+use solaire::{external::*, process::*};
 use tracing::Level;
 use tracing_subscriber::FmtSubscriber;
 use windows::Win32::Foundation::CloseHandle;
