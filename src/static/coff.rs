@@ -4,6 +4,7 @@ use std::str::FromStr;
 
 use super::cursor::Cursor;
 
+/// https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#coff-file-header-object-and-image
 pub fn parse_coff(cursor: &mut Cursor) -> CoffHeader {
     let header = CoffHeader {
         machine: Machine::try_from(cursor.read_u16()).expect("Invalid machine type"),
@@ -19,6 +20,7 @@ pub fn parse_coff(cursor: &mut Cursor) -> CoffHeader {
     header
 }
 
+/// https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#coff-file-header-object-and-image
 #[derive(Debug, Clone)]
 pub struct CoffHeader {
     pub machine: Machine,
@@ -30,6 +32,7 @@ pub struct CoffHeader {
     pub characteristics: Characteristic,
 }
 
+/// https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#machine-types
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum Machine {
     IMAGE_FILE_MACHINE_UNKNOWN,
@@ -108,6 +111,7 @@ impl TryFrom<u16> for Machine {
 }
 
 bitflags::bitflags! {
+    /// https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#characteristics
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
     pub struct Characteristic: u16 {
         const IMAGE_FILE_RELOCS_STRIPPED = 0x0001;

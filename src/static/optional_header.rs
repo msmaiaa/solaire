@@ -153,6 +153,7 @@ struct WindowsSpecificFields {
     number_of_rva_and_sizes: u32,
 }
 
+/// https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#windows-subsystem
 #[derive(Debug, Clone)]
 enum WindowsSubsystem {
     UNKNOWN,

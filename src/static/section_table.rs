@@ -1,6 +1,9 @@
+#![allow(non_camel_case_types)]
+
 use super::cursor::Cursor;
 use std::str::FromStr;
 
+/// https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#section-table-section-headers
 pub fn parse_section_table(cursor: &mut Cursor) -> SectionTable {
     SectionTable {
         name: cursor.read_str(8).to_string(),
@@ -33,7 +36,112 @@ pub struct SectionTable {
     characteristics: SectionFlags,
 }
 
+impl SectionTable {
+    pub fn get_raw_data<'a>(&self, memory: &'a Vec<u8>) -> &'a [u8] {
+        let start = self.pointer_to_raw_data as usize;
+        let end = start + self.size_of_raw_data as usize;
+        &memory[start..end]
+    }
+
+    //  TODO: test this
+    /// https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#coff-relocations-object-only
+    pub fn get_coff_relocations<'a>(&self, memory: &'a Vec<u8>) -> Vec<CoffRelocation> {
+        let mut start = self.pointer_to_relocations as usize;
+        let end = start + (self.number_of_relocations as usize * 10);
+        let mut relocations = vec![];
+        loop {
+            if start >= end {
+                break;
+            }
+            if memory[start] == 0 && memory[start + 1] == 0 {
+                break;
+            }
+            let relocation = CoffRelocation {
+                virtual_address: u32::from_le_bytes([
+                    memory[start],
+                    memory[start + 1],
+                    memory[start + 2],
+                    memory[start + 3],
+                ]),
+                symbol_table_index: u32::from_le_bytes([
+                    memory[start + 4],
+                    memory[start + 5],
+                    memory[start + 6],
+                    memory[start + 7],
+                ]),
+                r#type: TypeIndicatorX64::try_from(u16::from_le_bytes([
+                    memory[start + 8],
+                    memory[start + 9],
+                ]))
+                .expect("Invalid relocation type"),
+            };
+            relocations.push(relocation);
+            start += 10;
+        }
+        relocations
+    }
+}
+
+/// https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#coff-relocations-object-only
+#[derive(Debug, Clone)]
+pub struct CoffRelocation {
+    virtual_address: u32,
+    symbol_table_index: u32,
+    r#type: TypeIndicatorX64,
+}
+
+//  TODO: support other archs
+/// https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#x64-processors
+#[derive(Debug, Clone)]
+pub enum TypeIndicatorX64 {
+    IMAGE_REL_AMD64_ABSOLUTE,
+    IMAGE_REL_AMD64_ADDR64,
+    IMAGE_REL_AMD64_ADDR32,
+    IMAGE_REL_AMD64_ADDR32NB,
+    IMAGE_REL_AMD64_REL32,
+    IMAGE_REL_AMD64_REL32_1,
+    IMAGE_REL_AMD64_REL32_2,
+    IMAGE_REL_AMD64_REL32_3,
+    IMAGE_REL_AMD64_REL32_4,
+    IMAGE_REL_AMD64_REL32_5,
+    IMAGE_REL_AMD64_SECTION,
+    IMAGE_REL_AMD64_SECREL,
+    IMAGE_REL_AMD64_SECREL7,
+    IMAGE_REL_AMD64_TOKEN,
+    IMAGE_REL_AMD64_SREL32,
+    IMAGE_REL_AMD64_PAIR,
+    IMAGE_REL_AMD64_SSPAN32,
+}
+
+impl TryFrom<u16> for TypeIndicatorX64 {
+    type Error = ();
+
+    fn try_from(value: u16) -> Result<Self, Self::Error> {
+        match value {
+            0x0000 => Ok(TypeIndicatorX64::IMAGE_REL_AMD64_ABSOLUTE),
+            0x0001 => Ok(TypeIndicatorX64::IMAGE_REL_AMD64_ADDR64),
+            0x0002 => Ok(TypeIndicatorX64::IMAGE_REL_AMD64_ADDR32),
+            0x0003 => Ok(TypeIndicatorX64::IMAGE_REL_AMD64_ADDR32NB),
+            0x0004 => Ok(TypeIndicatorX64::IMAGE_REL_AMD64_REL32),
+            0x0005 => Ok(TypeIndicatorX64::IMAGE_REL_AMD64_REL32_1),
+            0x0006 => Ok(TypeIndicatorX64::IMAGE_REL_AMD64_REL32_2),
+            0x0007 => Ok(TypeIndicatorX64::IMAGE_REL_AMD64_REL32_3),
+            0x0008 => Ok(TypeIndicatorX64::IMAGE_REL_AMD64_REL32_4),
+            0x0009 => Ok(TypeIndicatorX64::IMAGE_REL_AMD64_REL32_5),
+            0x000A => Ok(TypeIndicatorX64::IMAGE_REL_AMD64_SECTION),
+            0x000B => Ok(TypeIndicatorX64::IMAGE_REL_AMD64_SECREL),
+            0x000C => Ok(TypeIndicatorX64::IMAGE_REL_AMD64_SECREL7),
+            0x000D => Ok(TypeIndicatorX64::IMAGE_REL_AMD64_TOKEN),
+            0x000E => Ok(TypeIndicatorX64::IMAGE_REL_AMD64_SREL32),
+            0x000F => Ok(TypeIndicatorX64::IMAGE_REL_AMD64_PAIR),
+            0x0010 => Ok(TypeIndicatorX64::IMAGE_REL_AMD64_SSPAN32),
+            _ => Err(()),
+        }
+    }
+}
+
 bitflags::bitflags! {
+    /// https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#section-flags
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
     struct SectionFlags: u32 {
         const RESERVED0 = 0x0000;
