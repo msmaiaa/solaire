@@ -5,8 +5,6 @@ pub mod section_table;
 
 #[derive(Clone, Debug)]
 pub struct PortableExecutable {
-    pub stub: u16,
-    pub stub_offset: u8,
     pub pe_signature: u16,
     pub coff_header: coff::CoffHeader,
     pub opt_header: optional_header::OptionalHeader,
@@ -22,12 +20,16 @@ impl PortableExecutable {
     fn parse(data: impl Into<Vec<u8>>) -> Self {
         let mut cursor = cursor::Cursor::new(data.into());
 
-        let stub = cursor.read_u16();
-        cursor.skip(58);
-        let stub_offset = cursor.read(1);
-        let stub_offset = *stub_offset.first().unwrap();
-        cursor.skip((stub_offset as usize - cursor.position) as usize);
-        let pe_signature = cursor.read_u16();
+        let mz = cursor.read_u16();
+        tracing::debug!("mz: {:#x?}", mz);
+
+        let mut pe_signature = cursor.read_u16();
+        while pe_signature != 0x4550 {
+            pe_signature = cursor.read_u16();
+        }
+        tracing::info!("got the pe_signature: {:#x?}", pe_signature);
+
+        //  skip the 2 null bytes
         cursor.skip(2);
 
         let coff_header = coff::parse_coff(&mut cursor);
@@ -35,10 +37,16 @@ impl PortableExecutable {
         let sections = (0..coff_header.numbers_of_sections)
             .map(|_| section_table::parse_section_table(&mut cursor))
             .collect::<Vec<_>>();
+        tracing::info!("coff_header: {:#x?}", coff_header);
 
+        for section in &sections {
+            tracing::info!(
+                "section: {} - {:#x?}",
+                section.name,
+                section.coff_symbol_table(&cursor.data, coff_header.pointer_to_symbol_table)
+            );
+        }
         PortableExecutable {
-            stub,
-            stub_offset,
             pe_signature,
             coff_header,
             opt_header,

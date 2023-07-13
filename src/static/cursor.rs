@@ -23,6 +23,12 @@ impl Cursor {
         self.position += bytes;
     }
 
+    pub fn read_u8(&mut self) -> u8 {
+        let result = self.data[self.position];
+        self.position += 1;
+        result
+    }
+
     pub fn read_u16(&mut self) -> u16 {
         u16_from_bytes(&self.read(2))
     }
@@ -34,6 +40,10 @@ impl Cursor {
     pub fn read_u64(&mut self) -> u64 {
         u64_from_bytes(&self.read(8))
     }
+
+    pub fn read_i16(&mut self) -> i16 {
+        i16_from_bytes(&self.read(2))
+    }
 }
 
 pub fn u32_from_bytes(le_bytes: &[u8]) -> u32 {
@@ -43,6 +53,11 @@ pub fn u32_from_bytes(le_bytes: &[u8]) -> u32 {
 
 pub fn u16_from_bytes(le_bytes: &[u8]) -> u16 {
     let result = u16::from_le_bytes(le_bytes[0..2].try_into().unwrap());
+    result
+}
+
+pub fn i16_from_bytes(le_bytes: &[u8]) -> i16 {
+    let result = i16::from_le_bytes(le_bytes[0..2].try_into().unwrap());
     result
 }
 

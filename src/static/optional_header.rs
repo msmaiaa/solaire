@@ -102,60 +102,60 @@ pub fn parse_opt_header(cursor: &mut Cursor) -> OptionalHeader {
 
 /// https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#optional-header-data-directories-image-only
 #[derive(Debug, Clone)]
-struct DataDirectories {
-    export_table: ImageDataDirectory,
-    import_table: ImageDataDirectory,
-    resource_table: ImageDataDirectory,
-    exception_table: ImageDataDirectory,
-    certificate_table: ImageDataDirectory,
-    base_relocation_table: ImageDataDirectory,
-    debug: ImageDataDirectory,
-    architecture: ImageDataDirectory,
-    global_ptr: ImageDataDirectory,
-    tls_table: ImageDataDirectory,
-    load_config_table: ImageDataDirectory,
-    bound_import: ImageDataDirectory,
-    import_address_table: ImageDataDirectory,
-    delay_import_descriptor: ImageDataDirectory,
-    clr_runtime_header: ImageDataDirectory,
-    reserved: ImageDataDirectory,
+pub struct DataDirectories {
+    pub export_table: ImageDataDirectory,
+    pub import_table: ImageDataDirectory,
+    pub resource_table: ImageDataDirectory,
+    pub exception_table: ImageDataDirectory,
+    pub certificate_table: ImageDataDirectory,
+    pub base_relocation_table: ImageDataDirectory,
+    pub debug: ImageDataDirectory,
+    pub architecture: ImageDataDirectory,
+    pub global_ptr: ImageDataDirectory,
+    pub tls_table: ImageDataDirectory,
+    pub load_config_table: ImageDataDirectory,
+    pub bound_import: ImageDataDirectory,
+    pub import_address_table: ImageDataDirectory,
+    pub delay_import_descriptor: ImageDataDirectory,
+    pub clr_runtime_header: ImageDataDirectory,
+    pub reserved: ImageDataDirectory,
 }
 
 #[derive(Debug, Clone)]
-struct ImageDataDirectory {
-    virtual_address: u32,
-    size: u32,
+pub struct ImageDataDirectory {
+    pub virtual_address: u32,
+    pub size: u32,
 }
 
 /// https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#optional-header-windows-specific-fields-image-only
 #[derive(Debug, Clone)]
-struct WindowsSpecificFields {
-    image_base: ImageBase,
-    section_alignment: u32,
-    file_alignment: u32,
-    major_os_version: u16,
-    minor_os_version: u16,
-    major_image_version: u16,
-    minor_image_version: u16,
-    major_subsystem_version: u16,
-    minor_subsystem_version: u16,
-    win32_version_value: u32,
-    size_of_image: u32,
-    size_of_headers: u32,
-    checksum: u32,
-    subsystem: WindowsSubsystem,
-    dll_characteristics: DllCharacteristics,
-    size_of_stack_reserve: SizeOfStackReserve,
-    size_of_stack_commit: SizeOfStackCommit,
-    size_of_heap_reserve: SizeOfHeapReserve,
-    size_of_heap_commit: SizeOfHeapCommit,
-    loader_flags: u32,
-    number_of_rva_and_sizes: u32,
+pub struct WindowsSpecificFields {
+    pub image_base: ImageBase,
+    pub section_alignment: u32,
+    pub file_alignment: u32,
+    pub major_os_version: u16,
+    pub minor_os_version: u16,
+    pub major_image_version: u16,
+    pub minor_image_version: u16,
+    pub major_subsystem_version: u16,
+    pub minor_subsystem_version: u16,
+    pub win32_version_value: u32,
+    pub size_of_image: u32,
+    pub size_of_headers: u32,
+    pub checksum: u32,
+    pub subsystem: WindowsSubsystem,
+    pub dll_characteristics: DllCharacteristics,
+    pub size_of_stack_reserve: SizeOfStackReserve,
+    pub size_of_stack_commit: SizeOfStackCommit,
+    pub size_of_heap_reserve: SizeOfHeapReserve,
+    pub size_of_heap_commit: SizeOfHeapCommit,
+    pub loader_flags: u32,
+    pub number_of_rva_and_sizes: u32,
 }
 
 /// https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#windows-subsystem
 #[derive(Debug, Clone)]
-enum WindowsSubsystem {
+pub enum WindowsSubsystem {
     UNKNOWN,
     NATIVE,
     WINDOWS_GUI,
@@ -193,65 +193,65 @@ impl From<u16> for WindowsSubsystem {
 }
 
 #[derive(Debug, Clone)]
-enum ImageBase {
+pub enum ImageBase {
     PE32(u32),
     PE32_PLUS(u64),
 }
 
 #[derive(Debug, Clone)]
-enum SizeOfStackReserve {
+pub enum SizeOfStackReserve {
     PE32(u32),
     PE32_PLUS(u64),
 }
 
 #[derive(Debug, Clone)]
-enum SizeOfStackCommit {
+pub enum SizeOfStackCommit {
     PE32(u32),
     PE32_PLUS(u64),
 }
 
 #[derive(Debug, Clone)]
-enum SizeOfHeapReserve {
+pub enum SizeOfHeapReserve {
     PE32(u32),
     PE32_PLUS(u64),
 }
 
 #[derive(Debug, Clone)]
-enum SizeOfHeapCommit {
+pub enum SizeOfHeapCommit {
     PE32(u32),
     PE32_PLUS(u64),
 }
 
 /// https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#optional-header-standard-fields-image-only
 #[derive(Debug, Clone)]
-struct StandardFields {
-    magic: ExecutableKind,
-    major_linker_version: u8,
-    minor_linker_version: u8,
-    size_of_code: u32,
-    size_of_initialized_data: u32,
-    size_of_uninitialized_data: u32,
-    address_of_entry_point: u32,
-    base_of_code: u32,
-    base_of_data: Option<u32>,
+pub struct StandardFields {
+    pub magic: ExecutableKind,
+    pub major_linker_version: u8,
+    pub minor_linker_version: u8,
+    pub size_of_code: u32,
+    pub size_of_initialized_data: u32,
+    pub size_of_uninitialized_data: u32,
+    pub address_of_entry_point: u32,
+    pub base_of_code: u32,
+    pub base_of_data: Option<u32>,
 }
 
 /// https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#optional-header-image-only
 #[derive(Debug, Clone)]
 pub struct OptionalHeader {
-    std_fields: StandardFields,
-    win_specific_fields: WindowsSpecificFields,
-    data_directories: DataDirectories,
+    pub std_fields: StandardFields,
+    pub win_specific_fields: WindowsSpecificFields,
+    pub data_directories: DataDirectories,
 }
 
 #[derive(Debug, Clone)]
-struct PortableExecutable {
-    executable_kind: ExecutableKind,
+pub struct PortableExecutable {
+    pub executable_kind: ExecutableKind,
 }
 
 bitflags::bitflags! {
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-    struct DllCharacteristics: u16 {
+    pub struct DllCharacteristics: u16 {
         const RESERVED1 = 0x0001;
         const RESERVED2 = 0x0002;
         const RESERVED3 = 0x0004;
@@ -279,7 +279,7 @@ impl FromStr for DllCharacteristics {
 }
 
 #[derive(Debug, Clone)]
-enum ExecutableKind {
+pub enum ExecutableKind {
     PE32,
     PE32_PLUS,
 }

@@ -24,16 +24,16 @@ pub fn parse_section_table(cursor: &mut Cursor) -> SectionTable {
 /// https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#section-table-section-headers
 #[derive(Debug, Clone)]
 pub struct SectionTable {
-    name: String,
-    virtual_size: u32,
-    virtual_address: u32,
-    size_of_raw_data: u32,
-    pointer_to_raw_data: u32,
-    pointer_to_relocations: u32,
-    pointer_to_linenumbers: u32,
-    number_of_relocations: u16,
-    number_of_linenumbers: u16,
-    characteristics: SectionFlags,
+    pub name: String,
+    pub virtual_size: u32,
+    pub virtual_address: u32,
+    pub size_of_raw_data: u32,
+    pub pointer_to_raw_data: u32,
+    pub pointer_to_relocations: u32,
+    pub pointer_to_linenumbers: u32,
+    pub number_of_relocations: u16,
+    pub number_of_linenumbers: u16,
+    pub characteristics: SectionFlags,
 }
 
 impl SectionTable {
@@ -45,49 +45,234 @@ impl SectionTable {
 
     //  TODO: test this
     /// https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#coff-relocations-object-only
-    pub fn get_coff_relocations<'a>(&self, memory: &'a Vec<u8>) -> Vec<CoffRelocation> {
-        let mut start = self.pointer_to_relocations as usize;
-        let end = start + (self.number_of_relocations as usize * 10);
+    pub fn coff_relocations<'a>(&self, memory: &'a Vec<u8>) -> Vec<CoffRelocation> {
+        let mut cursor = Cursor::new(
+            memory[self.pointer_to_relocations as usize
+                ..self.pointer_to_relocations as usize
+                    + (self.number_of_relocations as usize * 10)]
+                .into(),
+        );
         let mut relocations = vec![];
-        loop {
-            if start >= end {
-                break;
-            }
-            if memory[start] == 0 && memory[start + 1] == 0 {
-                break;
-            }
-            let relocation = CoffRelocation {
-                virtual_address: u32::from_le_bytes([
-                    memory[start],
-                    memory[start + 1],
-                    memory[start + 2],
-                    memory[start + 3],
-                ]),
-                symbol_table_index: u32::from_le_bytes([
-                    memory[start + 4],
-                    memory[start + 5],
-                    memory[start + 6],
-                    memory[start + 7],
-                ]),
-                r#type: TypeIndicatorX64::try_from(u16::from_le_bytes([
-                    memory[start + 8],
-                    memory[start + 9],
-                ]))
-                .expect("Invalid relocation type"),
-            };
-            relocations.push(relocation);
-            start += 10;
+        for _ in 0..self.number_of_relocations {
+            relocations.push(CoffRelocation {
+                virtual_address: cursor.read_u32(),
+                symbol_table_index: cursor.read_u32(),
+                r#type: TypeIndicatorX64::try_from(cursor.read_u16())
+                    .expect("Invalid relocation type"),
+            });
         }
         relocations
     }
+
+    //  https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#coff-line-numbers-deprecated
+    pub fn coff_line_numbers<'a>(&self, memory: &'a Vec<u8>) -> Vec<LineNumber> {
+        let mut cursor = Cursor::new(
+            memory[self.pointer_to_linenumbers as usize
+                ..self.pointer_to_linenumbers as usize + (self.number_of_linenumbers as usize * 6)]
+                .into(),
+        );
+        let mut line_nums = vec![];
+        for _ in 0..self.number_of_linenumbers {
+            line_nums.push(LineNumber {
+                r#type: cursor.read_u32(),
+                linenumber: cursor.read_u16(),
+            });
+        }
+        line_nums
+    }
+
+    //  https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#coff-symbol-table
+    pub fn coff_symbol_table<'a>(
+        &self,
+        memory: &'a Vec<u8>,
+        pointer_to_start: u32,
+    ) -> Vec<SymbolTableRecord> {
+        let mut cursor = Cursor::new(
+            memory[pointer_to_start as usize
+                ..pointer_to_start as usize + (self.number_of_relocations * 18) as usize]
+                .into(),
+        );
+
+        let mut records = vec![];
+        for _ in 0..self.number_of_relocations {
+            records.push(SymbolTableRecord {
+                name: SymbolName {
+                    short_name: cursor.read_u32(),
+                    zeroes: cursor.read_u16(),
+                    offset: cursor.read_u16(),
+                },
+                value: cursor.read_u32(),
+                section_number: SectionNumber::from(cursor.read_i16()),
+                r#type: SymbolType::from(cursor.read_u16()),
+                storage_class: StorageClass::from(cursor.read_u8()),
+                number_of_aux_symbols: cursor.read_u8(),
+            });
+        }
+        records
+    }
+}
+
+/// https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#coff-symbol-table
+#[derive(Debug, Clone)]
+pub struct SymbolTableRecord {
+    pub name: SymbolName,
+    pub value: u32,
+    pub section_number: SectionNumber,
+    pub r#type: SymbolType,
+    pub storage_class: StorageClass,
+    pub number_of_aux_symbols: u8,
+}
+
+#[derive(Debug, Clone)]
+pub enum SectionNumber {
+    IMAGE_SYM_UNDEFINED,
+    IMAGE_SYM_ABSOLUTE,
+    IMAGE_SYM_DEBUG,
+}
+
+impl From<i16> for SectionNumber {
+    fn from(value: i16) -> Self {
+        match value {
+            0 => SectionNumber::IMAGE_SYM_UNDEFINED,
+            -1 => SectionNumber::IMAGE_SYM_ABSOLUTE,
+            -2 => SectionNumber::IMAGE_SYM_DEBUG,
+            _ => panic!("Invalid section number"),
+        }
+    }
+}
+
+/// https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#storage-class
+#[derive(Debug, Clone)]
+pub enum StorageClass {
+    IMAGE_SYM_CLASS_END_OF_FUNCTION,
+    IMAGE_SYM_CLASS_NULL,
+    IMAGE_SYM_CLASS_AUTOMATIC,
+    IMAGE_SYM_CLASS_EXTERNAL,
+    IMAGE_SYM_CLASS_STATIC,
+    IMAGE_SYM_CLASS_REGISTER,
+    IMAGE_SYM_CLASS_EXTERNAL_DEF,
+    IMAGE_SYM_CLASS_LABEL,
+    IMAGE_SYM_CLASS_UNDEFINED_LABEL,
+    IMAGE_SYM_CLASS_MEMBER_OF_STRUCT,
+    IMAGE_SYM_CLASS_ARGUMENT,
+    IMAGE_SYM_CLASS_STRUCT_TAG,
+    IMAGE_SYM_CLASS_MEMBER_OF_UNION,
+    IMAGE_SYM_CLASS_UNION_TAG,
+    IMAGE_SYM_CLASS_TYPE_DEFINITION,
+    IMAGE_SYM_CLASS_UNDEFINED_STATIC,
+    IMAGE_SYM_CLASS_ENUM_TAG,
+    IMAGE_SYM_CLASS_MEMBER_OF_ENUM,
+    IMAGE_SYM_CLASS_REGISTER_PARAM,
+    IMAGE_SYM_CLASS_BIT_FIELD,
+    IMAGE_SYM_CLASS_BLOCK,
+    IMAGE_SYM_CLASS_FUNCTION,
+    IMAGE_SYM_CLASS_END_OF_STRUCT,
+    IMAGE_SYM_CLASS_FILE,
+    IMAGE_SYM_CLASS_SECTION,
+    IMAGE_SYM_CLASS_WEAK_EXTERNAL,
+    IMAGE_SYM_CLASS_CLR_TOKEN,
+}
+
+impl From<u8> for StorageClass {
+    fn from(value: u8) -> Self {
+        match value {
+            0xFF => StorageClass::IMAGE_SYM_CLASS_END_OF_FUNCTION,
+            0 => StorageClass::IMAGE_SYM_CLASS_NULL,
+            1 => StorageClass::IMAGE_SYM_CLASS_AUTOMATIC,
+            2 => StorageClass::IMAGE_SYM_CLASS_EXTERNAL,
+            3 => StorageClass::IMAGE_SYM_CLASS_STATIC,
+            4 => StorageClass::IMAGE_SYM_CLASS_REGISTER,
+            5 => StorageClass::IMAGE_SYM_CLASS_EXTERNAL_DEF,
+            6 => StorageClass::IMAGE_SYM_CLASS_LABEL,
+            7 => StorageClass::IMAGE_SYM_CLASS_UNDEFINED_LABEL,
+            8 => StorageClass::IMAGE_SYM_CLASS_MEMBER_OF_STRUCT,
+            9 => StorageClass::IMAGE_SYM_CLASS_ARGUMENT,
+            10 => StorageClass::IMAGE_SYM_CLASS_STRUCT_TAG,
+            11 => StorageClass::IMAGE_SYM_CLASS_MEMBER_OF_UNION,
+            12 => StorageClass::IMAGE_SYM_CLASS_UNION_TAG,
+            13 => StorageClass::IMAGE_SYM_CLASS_TYPE_DEFINITION,
+            14 => StorageClass::IMAGE_SYM_CLASS_UNDEFINED_STATIC,
+            15 => StorageClass::IMAGE_SYM_CLASS_ENUM_TAG,
+            16 => StorageClass::IMAGE_SYM_CLASS_MEMBER_OF_ENUM,
+            17 => StorageClass::IMAGE_SYM_CLASS_REGISTER_PARAM,
+            18 => StorageClass::IMAGE_SYM_CLASS_BIT_FIELD,
+            100 => StorageClass::IMAGE_SYM_CLASS_BLOCK,
+            101 => StorageClass::IMAGE_SYM_CLASS_FUNCTION,
+            102 => StorageClass::IMAGE_SYM_CLASS_END_OF_STRUCT,
+            103 => StorageClass::IMAGE_SYM_CLASS_FILE,
+            104 => StorageClass::IMAGE_SYM_CLASS_SECTION,
+            105 => StorageClass::IMAGE_SYM_CLASS_WEAK_EXTERNAL,
+            107 => StorageClass::IMAGE_SYM_CLASS_CLR_TOKEN,
+            _ => panic!("Invalid storage class"),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SymbolName {
+    pub short_name: u32,
+    pub zeroes: u16,
+    pub offset: u16,
+}
+
+#[derive(Debug, Clone)]
+pub enum SymbolType {
+    IMAGE_SYM_TYPE_NULL,
+    IMAGE_SYM_TYPE_VOID,
+    IMAGE_SYM_TYPE_CHAR,
+    IMAGE_SYM_TYPE_SHORT,
+    IMAGE_SYM_TYPE_INT,
+    IMAGE_SYM_TYPE_LONG,
+    IMAGE_SYM_TYPE_FLOAT,
+    IMAGE_SYM_TYPE_DOUBLE,
+    IMAGE_SYM_TYPE_STRUCT,
+    IMAGE_SYM_TYPE_UNION,
+    IMAGE_SYM_TYPE_ENUM,
+    IMAGE_SYM_TYPE_MOE,
+    IMAGE_SYM_TYPE_BYTE,
+    IMAGE_SYM_TYPE_WORD,
+    IMAGE_SYM_TYPE_UINT,
+    IMAGE_SYM_TYPE_DWORD,
+    IMAGE_SYM_TYPE_PCODE,
+}
+
+impl From<u16> for SymbolType {
+    fn from(value: u16) -> Self {
+        match value {
+            0 => SymbolType::IMAGE_SYM_TYPE_NULL,
+            1 => SymbolType::IMAGE_SYM_TYPE_VOID,
+            2 => SymbolType::IMAGE_SYM_TYPE_CHAR,
+            3 => SymbolType::IMAGE_SYM_TYPE_SHORT,
+            4 => SymbolType::IMAGE_SYM_TYPE_INT,
+            5 => SymbolType::IMAGE_SYM_TYPE_LONG,
+            6 => SymbolType::IMAGE_SYM_TYPE_FLOAT,
+            7 => SymbolType::IMAGE_SYM_TYPE_DOUBLE,
+            8 => SymbolType::IMAGE_SYM_TYPE_STRUCT,
+            9 => SymbolType::IMAGE_SYM_TYPE_UNION,
+            10 => SymbolType::IMAGE_SYM_TYPE_ENUM,
+            11 => SymbolType::IMAGE_SYM_TYPE_MOE,
+            12 => SymbolType::IMAGE_SYM_TYPE_BYTE,
+            13 => SymbolType::IMAGE_SYM_TYPE_WORD,
+            14 => SymbolType::IMAGE_SYM_TYPE_UINT,
+            15 => SymbolType::IMAGE_SYM_TYPE_DWORD,
+            _ => panic!("Invalid symbol type"),
+        }
+    }
+}
+
+//  FIXME: type is a union of two 4-byte fields
+#[derive(Debug, Clone)]
+pub struct LineNumber {
+    pub r#type: u32,
+    pub linenumber: u16,
 }
 
 /// https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#coff-relocations-object-only
 #[derive(Debug, Clone)]
 pub struct CoffRelocation {
-    virtual_address: u32,
-    symbol_table_index: u32,
-    r#type: TypeIndicatorX64,
+    pub virtual_address: u32,
+    pub symbol_table_index: u32,
+    pub r#type: TypeIndicatorX64,
 }
 
 //  TODO: support other archs
@@ -143,7 +328,7 @@ impl TryFrom<u16> for TypeIndicatorX64 {
 bitflags::bitflags! {
     /// https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#section-flags
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-    struct SectionFlags: u32 {
+    pub struct SectionFlags: u32 {
         const RESERVED0 = 0x0000;
         const RESERVED1 = 0x0001;
         const RESERVED2 = 0x0002;
