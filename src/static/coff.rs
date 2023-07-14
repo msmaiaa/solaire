@@ -8,7 +8,7 @@ use super::cursor::Cursor;
 pub fn parse_coff(cursor: &mut Cursor) -> CoffHeader {
     let header = CoffHeader {
         machine: Machine::try_from(cursor.read_u16()).expect("Invalid machine type"),
-        numbers_of_sections: cursor.read_u16(),
+        number_of_sections: cursor.read_u16(),
         time_date_stamp: cursor.read_u32(),
         pointer_to_symbol_table: cursor.read_u32(),
         number_of_symbols: cursor.read_u32(),
@@ -24,7 +24,7 @@ pub fn parse_coff(cursor: &mut Cursor) -> CoffHeader {
 #[derive(Debug, Clone)]
 pub struct CoffHeader {
     pub machine: Machine,
-    pub numbers_of_sections: u16,
+    pub number_of_sections: u16,
     pub time_date_stamp: u32,
     pub pointer_to_symbol_table: u32,
     pub number_of_symbols: u32,

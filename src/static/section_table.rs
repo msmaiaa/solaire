@@ -4,8 +4,8 @@ use super::cursor::Cursor;
 use std::str::FromStr;
 
 /// https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#section-table-section-headers
-pub fn parse_section_table(cursor: &mut Cursor) -> SectionTable {
-    SectionTable {
+pub fn parse_section_header(cursor: &mut Cursor) -> SectionHeader {
+    SectionHeader {
         name: cursor.read_str(8).to_string(),
         virtual_size: cursor.read_u32(),
         virtual_address: cursor.read_u32(),
@@ -21,9 +21,17 @@ pub fn parse_section_table(cursor: &mut Cursor) -> SectionTable {
     }
 }
 
+pub fn parse_section_headers(cursor: &mut Cursor, number_of_sections: u16) -> Vec<SectionHeader> {
+    let mut section_headers = vec![];
+    for _ in 0..number_of_sections {
+        section_headers.push(parse_section_header(cursor));
+    }
+    section_headers
+}
+
 /// https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#section-table-section-headers
 #[derive(Debug, Clone)]
-pub struct SectionTable {
+pub struct SectionHeader {
     pub name: String,
     pub virtual_size: u32,
     pub virtual_address: u32,
@@ -36,7 +44,7 @@ pub struct SectionTable {
     pub characteristics: SectionFlags,
 }
 
-impl SectionTable {
+impl SectionHeader {
     pub fn get_raw_data<'a>(&self, memory: &'a Vec<u8>) -> &'a [u8] {
         let start = self.pointer_to_raw_data as usize;
         let end = start + self.size_of_raw_data as usize;
@@ -81,6 +89,7 @@ impl SectionTable {
         line_nums
     }
 
+    //  FIXME: i'm not done
     //  https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#coff-symbol-table
     pub fn coff_symbol_table<'a>(
         &self,
@@ -95,7 +104,7 @@ impl SectionTable {
 
         let mut records = vec![];
         for _ in 0..self.number_of_relocations {
-            records.push(SymbolTableRecord {
+            let result = SymbolTableRecord::Standard(StandardSymbolRecord {
                 name: SymbolName {
                     short_name: cursor.read_u32(),
                     zeroes: cursor.read_u16(),
@@ -107,14 +116,21 @@ impl SectionTable {
                 storage_class: StorageClass::from(cursor.read_u8()),
                 number_of_aux_symbols: cursor.read_u8(),
             });
+            records.push(result);
         }
         records
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum SymbolTableRecord {
+    Standard(StandardSymbolRecord),
+    Auxiliary(AuxiliarySymbolRecord),
+}
+
 /// https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#coff-symbol-table
 #[derive(Debug, Clone)]
-pub struct SymbolTableRecord {
+pub struct StandardSymbolRecord {
     pub name: SymbolName,
     pub value: u32,
     pub section_number: SectionNumber,
@@ -123,7 +139,55 @@ pub struct SymbolTableRecord {
     pub number_of_aux_symbols: u8,
 }
 
-#[derive(Debug, Clone)]
+impl StandardSymbolRecord {
+    pub fn is_function_definition(&self) -> bool {
+        let num: i16 = self.section_number.clone() as i16;
+        self.storage_class == StorageClass::IMAGE_SYM_CLASS_EXTERNAL
+            && self.r#type == SymbolType::FUNCTION
+            && num > 0
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum AuxiliarySymbolRecord {
+    ///  https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#auxiliary-format-1-function-definitions
+    FnDefinitions {
+        tag_index: u32,
+        total_size: u32,
+        ptr_to_linenumber: u32,
+        ptr_to_next_fn: u32,
+        unused: u16,
+    },
+    /// https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#auxiliary-format-2-bf-and-ef-symbols
+    BfAndEf {
+        unused: u32,
+        linenumber: u16,
+        unused2: [u8; 6],
+        ptr_to_next_fn: u32,
+        unused3: u16,
+    },
+    /// https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#auxiliary-format-3-weak-externals
+    /// TODO: change characteristics
+    WeakExternals {
+        tag_index: u32,
+        characteristics: u32,
+        unused: [u8; 10],
+    },
+    /// https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#auxiliary-format-4-files
+    Files { file_name: [u8; 18] },
+    /// https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#auxiliary-format-5-section-definitions
+    SectionDefinitions {
+        length: u32,
+        number_of_relocations: u16,
+        number_of_linenumbers: u16,
+        checksum: u32,
+        number: u16,
+        selection: u8,
+        unused: [u8; 3],
+    },
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum SectionNumber {
     IMAGE_SYM_UNDEFINED,
     IMAGE_SYM_ABSOLUTE,
@@ -142,7 +206,7 @@ impl From<i16> for SectionNumber {
 }
 
 /// https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#storage-class
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum StorageClass {
     IMAGE_SYM_CLASS_END_OF_FUNCTION,
     IMAGE_SYM_CLASS_NULL,
@@ -215,7 +279,7 @@ pub struct SymbolName {
     pub offset: u16,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum SymbolType {
     IMAGE_SYM_TYPE_NULL,
     IMAGE_SYM_TYPE_VOID,
@@ -234,6 +298,7 @@ pub enum SymbolType {
     IMAGE_SYM_TYPE_UINT,
     IMAGE_SYM_TYPE_DWORD,
     IMAGE_SYM_TYPE_PCODE,
+    FUNCTION,
 }
 
 impl From<u16> for SymbolType {
@@ -255,6 +320,7 @@ impl From<u16> for SymbolType {
             13 => SymbolType::IMAGE_SYM_TYPE_WORD,
             14 => SymbolType::IMAGE_SYM_TYPE_UINT,
             15 => SymbolType::IMAGE_SYM_TYPE_DWORD,
+            0x20 => SymbolType::FUNCTION,
             _ => panic!("Invalid symbol type"),
         }
     }

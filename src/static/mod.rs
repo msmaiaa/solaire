@@ -1,3 +1,5 @@
+use crate::r#static::section_table::parse_section_headers;
+
 pub mod coff;
 pub mod cursor;
 pub mod optional_header;
@@ -8,7 +10,7 @@ pub struct PortableExecutable {
     pub pe_signature: u16,
     pub coff_header: coff::CoffHeader,
     pub opt_header: optional_header::OptionalHeader,
-    pub sections: Vec<section_table::SectionTable>,
+    pub section_headers: Vec<section_table::SectionHeader>,
 }
 
 impl PortableExecutable {
@@ -19,6 +21,7 @@ impl PortableExecutable {
 
     fn parse(data: impl Into<Vec<u8>>) -> Self {
         let mut cursor = cursor::Cursor::new(data.into());
+        let memory = &cursor.data;
 
         let mz = cursor.read_u16();
         tracing::debug!("mz: {:#x?}", mz);
@@ -33,24 +36,27 @@ impl PortableExecutable {
         cursor.skip(2);
 
         let coff_header = coff::parse_coff(&mut cursor);
-        let opt_header = optional_header::parse_opt_header(&mut cursor);
-        let sections = (0..coff_header.numbers_of_sections)
-            .map(|_| section_table::parse_section_table(&mut cursor))
-            .collect::<Vec<_>>();
-        tracing::info!("coff_header: {:#x?}", coff_header);
 
-        for section in &sections {
+        //  FIXME: skip is optional, do i even check if it's there or not?
+        let opt_header = optional_header::parse_opt_header(&mut cursor);
+        tracing::info!("opt_header: {:#x?}", opt_header);
+        let section_headers = parse_section_headers(&mut cursor, coff_header.number_of_sections);
+        // tracing::info!("coff_header: {:#x?}", coff_header);
+
+        for section in &section_headers {
             tracing::info!(
-                "section: {} - {:#x?}",
+                "section: {:?} - virtual offset: {:#x?} - virtual size: {:#x?} - ptr_raw_data: {:#x?}",
                 section.name,
-                section.coff_symbol_table(&cursor.data, coff_header.pointer_to_symbol_table)
+                section.virtual_address,
+                section.virtual_size,
+                section.pointer_to_raw_data
             );
         }
         PortableExecutable {
             pe_signature,
             coff_header,
             opt_header,
-            sections,
+            section_headers,
         }
     }
 }
