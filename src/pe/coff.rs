@@ -2,22 +2,27 @@
 
 use std::str::FromStr;
 
-use super::cursor::Cursor;
+use super::{cursor::Cursor, PeError};
 
 /// https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#coff-file-header-object-and-image
-pub fn parse_coff(cursor: &mut Cursor) -> CoffHeader {
+pub fn parse_coff(cursor: &mut Cursor) -> Result<CoffHeader, PeError> {
     let header = CoffHeader {
-        machine: Machine::try_from(cursor.read_u16()).expect("Invalid machine type"),
+        machine: Machine::try_from(cursor.read_u16())?,
         number_of_sections: cursor.read_u16(),
         time_date_stamp: cursor.read_u32(),
-        pointer_to_symbol_table: cursor.read_u32(),
+        ptr_to_symbol_table: cursor.read_u32(),
         number_of_symbols: cursor.read_u32(),
         size_of_optional_header: cursor.read_u16(),
         characteristics: format!("0x{:x}", cursor.read_u16())
             .parse::<Characteristic>()
-            .unwrap(),
+            .map_err(|e| {
+                PeError::ParseError(format!(
+                    "Could not parse the COFF header characteristics: {}",
+                    e
+                ))
+            })?,
     };
-    header
+    Ok(header)
 }
 
 /// https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#coff-file-header-object-and-image
@@ -26,7 +31,7 @@ pub struct CoffHeader {
     pub machine: Machine,
     pub number_of_sections: u16,
     pub time_date_stamp: u32,
-    pub pointer_to_symbol_table: u32,
+    pub ptr_to_symbol_table: u32,
     pub number_of_symbols: u32,
     pub size_of_optional_header: u16,
     pub characteristics: Characteristic,
@@ -73,8 +78,8 @@ impl Default for Machine {
 }
 
 impl TryFrom<u16> for Machine {
-    type Error = ();
-    fn try_from(val: u16) -> Result<Self, ()> {
+    type Error = PeError;
+    fn try_from(val: u16) -> Result<Self, PeError> {
         match val {
             0x0 => Ok(Self::IMAGE_FILE_MACHINE_UNKNOWN),
             0x184 => Ok(Self::IMAGE_FILE_MACHINE_ALPHA),
@@ -105,7 +110,10 @@ impl TryFrom<u16> for Machine {
             0x1a8 => Ok(Self::IMAGE_FILE_MACHINE_SH5),
             0x1c2 => Ok(Self::IMAGE_FILE_MACHINE_THUMB),
             0x169 => Ok(Self::IMAGE_FILE_MACHINE_WCEMIPSV2),
-            _ => Err(()),
+            _ => Err(PeError::ParseError(format!(
+                "Tried to parse an unknown Machine type: {:#x?}",
+                val
+            ))),
         }
     }
 }

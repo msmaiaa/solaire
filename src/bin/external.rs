@@ -29,7 +29,7 @@ fn test_ac_x86(p: Process) {
     tracing::info!("module_base_addr: {:?}", module_base_addr);
 
     let addr_local_player_ptr = module_base_addr as u32 + addr_local_player;
-    tracing::info!("local player pointer address: {:x?}", addr_local_player_ptr);
+    tracing::info!("local player ptr address: {:x?}", addr_local_player_ptr);
 
     let ammo_addr = get_multilevel_ptr_u32(
         h_proc,

@@ -1,32 +1,46 @@
 #![allow(non_camel_case_types)]
 
-use super::cursor::Cursor;
+use super::{cursor::Cursor, PeError};
 use std::str::FromStr;
 
+#[derive(Debug, Clone)]
+pub struct SectionTable {
+    pub section_headers: Vec<SectionHeader>,
+}
+
 /// https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#section-table-section-headers
-pub fn parse_section_header(cursor: &mut Cursor) -> SectionHeader {
-    SectionHeader {
+pub fn parse_section_header(cursor: &mut Cursor) -> Result<SectionHeader, PeError> {
+    let mut result = SectionHeader {
         name: cursor.read_str(8).to_string(),
         virtual_size: cursor.read_u32(),
         virtual_address: cursor.read_u32(),
         size_of_raw_data: cursor.read_u32(),
-        pointer_to_raw_data: cursor.read_u32(),
-        pointer_to_relocations: cursor.read_u32(),
-        pointer_to_linenumbers: cursor.read_u32(),
+        ptr_to_raw_data: cursor.read_u32(),
+        ptr_to_relocations: cursor.read_u32(),
+        ptr_to_linenumbers: cursor.read_u32(),
         number_of_relocations: cursor.read_u16(),
         number_of_linenumbers: cursor.read_u16(),
         characteristics: format!("0x{:x}", cursor.read_u32())
             .parse::<SectionFlags>()
-            .unwrap(),
-    }
+            .map_err(|e| {
+                PeError::ParseError(format!("Could not parse the section flags: {}", e))
+            })?,
+        raw_data: vec![],
+    };
+    result.raw_data = cursor.bytes[result.ptr_to_raw_data as usize
+        ..result.ptr_to_raw_data as usize + result.size_of_raw_data as usize]
+        .to_vec();
+    Ok(result)
 }
 
-pub fn parse_section_headers(cursor: &mut Cursor, number_of_sections: u16) -> Vec<SectionHeader> {
-    let mut section_headers = vec![];
-    for _ in 0..number_of_sections {
-        section_headers.push(parse_section_header(cursor));
-    }
-    section_headers
+pub fn parse_section_headers(
+    cursor: &mut Cursor,
+    number_of_sections: u16,
+) -> Result<SectionTable, PeError> {
+    let section_headers = (0..number_of_sections)
+        .map(|_| parse_section_header(cursor))
+        .collect::<Result<Vec<SectionHeader>, PeError>>()?;
+    Ok(SectionTable { section_headers })
 }
 
 /// https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#section-table-section-headers
@@ -36,47 +50,45 @@ pub struct SectionHeader {
     pub virtual_size: u32,
     pub virtual_address: u32,
     pub size_of_raw_data: u32,
-    pub pointer_to_raw_data: u32,
-    pub pointer_to_relocations: u32,
-    pub pointer_to_linenumbers: u32,
+    pub ptr_to_raw_data: u32,
+    pub ptr_to_relocations: u32,
+    pub ptr_to_linenumbers: u32,
     pub number_of_relocations: u16,
     pub number_of_linenumbers: u16,
     pub characteristics: SectionFlags,
+
+    ///  not in MS docs
+    pub raw_data: Vec<u8>,
 }
 
 impl SectionHeader {
-    pub fn get_raw_data<'a>(&self, memory: &'a Vec<u8>) -> &'a [u8] {
-        let start = self.pointer_to_raw_data as usize;
-        let end = start + self.size_of_raw_data as usize;
-        &memory[start..end]
-    }
-
     //  TODO: test this
     /// https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#coff-relocations-object-only
-    pub fn coff_relocations<'a>(&self, memory: &'a Vec<u8>) -> Vec<CoffRelocation> {
+    pub fn coff_relocations<'a>(
+        &self,
+        memory: &'a Vec<u8>,
+    ) -> Result<Vec<CoffRelocation>, PeError> {
         let mut cursor = Cursor::new(
-            memory[self.pointer_to_relocations as usize
-                ..self.pointer_to_relocations as usize
-                    + (self.number_of_relocations as usize * 10)]
+            memory[self.ptr_to_relocations as usize
+                ..self.ptr_to_relocations as usize + (self.number_of_relocations as usize * 10)]
                 .into(),
         );
-        let mut relocations = vec![];
-        for _ in 0..self.number_of_relocations {
-            relocations.push(CoffRelocation {
-                virtual_address: cursor.read_u32(),
-                symbol_table_index: cursor.read_u32(),
-                r#type: TypeIndicatorX64::try_from(cursor.read_u16())
-                    .expect("Invalid relocation type"),
-            });
-        }
-        relocations
+        (0..self.number_of_relocations)
+            .map(|_| {
+                Ok(CoffRelocation {
+                    virtual_address: cursor.read_u32(),
+                    symbol_table_index: cursor.read_u32(),
+                    r#type: TypeIndicatorX64::try_from(cursor.read_u16())?,
+                })
+            })
+            .collect()
     }
 
     //  https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#coff-line-numbers-deprecated
     pub fn coff_line_numbers<'a>(&self, memory: &'a Vec<u8>) -> Vec<LineNumber> {
         let mut cursor = Cursor::new(
-            memory[self.pointer_to_linenumbers as usize
-                ..self.pointer_to_linenumbers as usize + (self.number_of_linenumbers as usize * 6)]
+            memory[self.ptr_to_linenumbers as usize
+                ..self.ptr_to_linenumbers as usize + (self.number_of_linenumbers as usize * 6)]
                 .into(),
         );
         let mut line_nums = vec![];
@@ -94,11 +106,11 @@ impl SectionHeader {
     pub fn coff_symbol_table<'a>(
         &self,
         memory: &'a Vec<u8>,
-        pointer_to_start: u32,
+        ptr_to_start: u32,
     ) -> Vec<SymbolTableRecord> {
         let mut cursor = Cursor::new(
-            memory[pointer_to_start as usize
-                ..pointer_to_start as usize + (self.number_of_relocations * 18) as usize]
+            memory[ptr_to_start as usize
+                ..ptr_to_start as usize + (self.number_of_relocations * 18) as usize]
                 .into(),
         );
 
@@ -365,9 +377,9 @@ pub enum TypeIndicatorX64 {
 }
 
 impl TryFrom<u16> for TypeIndicatorX64 {
-    type Error = ();
+    type Error = PeError;
 
-    fn try_from(value: u16) -> Result<Self, Self::Error> {
+    fn try_from(value: u16) -> Result<Self, PeError> {
         match value {
             0x0000 => Ok(TypeIndicatorX64::IMAGE_REL_AMD64_ABSOLUTE),
             0x0001 => Ok(TypeIndicatorX64::IMAGE_REL_AMD64_ADDR64),
@@ -386,7 +398,10 @@ impl TryFrom<u16> for TypeIndicatorX64 {
             0x000E => Ok(TypeIndicatorX64::IMAGE_REL_AMD64_SREL32),
             0x000F => Ok(TypeIndicatorX64::IMAGE_REL_AMD64_PAIR),
             0x0010 => Ok(TypeIndicatorX64::IMAGE_REL_AMD64_SSPAN32),
-            _ => Err(()),
+            _ => Err(PeError::ParseError(format!(
+                "Invalid type indicator: {:#x?}",
+                value
+            ))),
         }
     }
 }

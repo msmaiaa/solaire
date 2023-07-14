@@ -13,6 +13,7 @@ tracing = "0.1.37"
 tracing-subscriber = "0.3.17"
 clap = { version = "4.1.4", features = ["derive"] }
 bitflags = "2.3.3"
+thiserror = "1.0.43"
 
 [dependencies.windows]
 version = "0.48.0"

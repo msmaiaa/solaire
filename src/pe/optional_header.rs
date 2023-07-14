@@ -2,11 +2,11 @@
 
 use std::str::FromStr;
 
-use super::cursor::Cursor;
+use super::{cursor::Cursor, PeError};
 
-pub fn parse_opt_header(cursor: &mut Cursor) -> OptionalHeader {
+pub fn parse_opt_header(cursor: &mut Cursor) -> Result<OptionalHeader, PeError> {
     use ExecutableKind::{PE32, PE32_PLUS};
-    let magic = ExecutableKind::from(cursor.read_u16());
+    let magic = ExecutableKind::try_from(cursor.read_u16())?;
     let major_minor = &cursor.read(2);
     let std_fields = StandardFields {
         major_linker_version: major_minor[0],
@@ -40,11 +40,16 @@ pub fn parse_opt_header(cursor: &mut Cursor) -> OptionalHeader {
         size_of_image: cursor.read_u32(),
         size_of_headers: cursor.read_u32(),
         checksum: cursor.read_u32(),
-        subsystem: WindowsSubsystem::from(cursor.read_u16()),
+        subsystem: WindowsSubsystem::try_from(cursor.read_u16())?,
 
         dll_characteristics: format!("0x{:x}", cursor.read_u16())
             .parse::<DllCharacteristics>()
-            .unwrap(),
+            .map_err(|e| {
+                PeError::ParseError(format!(
+                    "Could not parse the Optional Header's DLL characteristics: {}",
+                    e
+                ))
+            })?,
         size_of_stack_reserve: match std_fields.magic {
             PE32 => SizeOfStackReserve::PE32(cursor.read_u32()),
             PE32_PLUS => SizeOfStackReserve::PE32_PLUS(cursor.read_u64()),
@@ -93,11 +98,11 @@ pub fn parse_opt_header(cursor: &mut Cursor) -> OptionalHeader {
         reserved: image_data_dir!(),
     };
 
-    OptionalHeader {
+    Ok(OptionalHeader {
         std_fields,
         win_specific_fields,
         data_directories,
-    }
+    })
 }
 
 /// https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#optional-header-data-directories-image-only
@@ -171,9 +176,10 @@ pub enum WindowsSubsystem {
     WINDOWS_BOOT_APPLICATION,
 }
 
-impl From<u16> for WindowsSubsystem {
-    fn from(value: u16) -> Self {
-        match value {
+impl TryFrom<u16> for WindowsSubsystem {
+    type Error = PeError;
+    fn try_from(value: u16) -> Result<Self, PeError> {
+        let result = match value {
             0 => WindowsSubsystem::UNKNOWN,
             1 => WindowsSubsystem::NATIVE,
             2 => WindowsSubsystem::WINDOWS_GUI,
@@ -187,8 +193,13 @@ impl From<u16> for WindowsSubsystem {
             13 => WindowsSubsystem::EFI_ROM,
             14 => WindowsSubsystem::XBOX,
             16 => WindowsSubsystem::WINDOWS_BOOT_APPLICATION,
-            _ => WindowsSubsystem::UNKNOWN,
-        }
+            _ => {
+                return Err(PeError::ParseError(format!(
+                    "Tried to parse an invalid Windows Subsystem: {value}"
+                )))
+            }
+        };
+        Ok(result)
     }
 }
 
@@ -284,12 +295,16 @@ pub enum ExecutableKind {
     PE32_PLUS,
 }
 
-impl From<u16> for ExecutableKind {
-    fn from(val: u16) -> Self {
+impl TryFrom<u16> for ExecutableKind {
+    type Error = PeError;
+    fn try_from(val: u16) -> Result<Self, PeError> {
         match val {
-            0x10b => Self::PE32,
-            0x20b => Self::PE32_PLUS,
-            _ => Self::PE32,
+            0x10b => Ok(Self::PE32),
+            0x20b => Ok(Self::PE32_PLUS),
+            _ => Err(PeError::ParseError(format!(
+                "Tried to parse an invalid ExecutableKind: {:#x?}",
+                val
+            ))),
         }
     }
 }
