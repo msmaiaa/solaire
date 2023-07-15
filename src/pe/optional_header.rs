@@ -71,32 +71,33 @@ pub fn parse_opt_header(cursor: &mut Cursor) -> Result<OptionalHeader, PeError> 
     };
 
     macro_rules! image_data_dir {
-        () => {
+        ($tag: expr) => {
             ImageDataDirectory {
                 virtual_address: cursor.read_u32(),
                 size: cursor.read_u32(),
+                tag: $tag,
             }
         };
     }
 
-    let data_directories = DataDirectories {
-        export_table: image_data_dir!(),
-        import_table: image_data_dir!(),
-        resource_table: image_data_dir!(),
-        exception_table: image_data_dir!(),
-        certificate_table: image_data_dir!(),
-        base_relocation_table: image_data_dir!(),
-        debug: image_data_dir!(),
-        architecture: image_data_dir!(),
-        global_ptr: image_data_dir!(),
-        tls_table: image_data_dir!(),
-        load_config_table: image_data_dir!(),
-        bound_import: image_data_dir!(),
-        import_address_table: image_data_dir!(),
-        delay_import_descriptor: image_data_dir!(),
-        clr_runtime_header: image_data_dir!(),
-        reserved: image_data_dir!(),
-    };
+    let data_directories = vec![
+        image_data_dir!(String::from("export_table")),
+        image_data_dir!(String::from("import_table")),
+        image_data_dir!(String::from("resource_table")),
+        image_data_dir!(String::from("exception_table")),
+        image_data_dir!(String::from("certificate_table")),
+        image_data_dir!(String::from("base_relocation_table")),
+        image_data_dir!(String::from("debug")),
+        image_data_dir!(String::from("architecture")),
+        image_data_dir!(String::from("global_ptr")),
+        image_data_dir!(String::from("tls_table")),
+        image_data_dir!(String::from("load_config_table")),
+        image_data_dir!(String::from("bound_import")),
+        image_data_dir!(String::from("import_address_table")),
+        image_data_dir!(String::from("delay_import_descriptor")),
+        image_data_dir!(String::from("clr_runtime_header")),
+        image_data_dir!(String::from("reserved")),
+    ];
 
     Ok(OptionalHeader {
         std_fields,
@@ -105,31 +106,11 @@ pub fn parse_opt_header(cursor: &mut Cursor) -> Result<OptionalHeader, PeError> 
     })
 }
 
-/// https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#optional-header-data-directories-image-only
-#[derive(Debug, Clone)]
-pub struct DataDirectories {
-    pub export_table: ImageDataDirectory,
-    pub import_table: ImageDataDirectory,
-    pub resource_table: ImageDataDirectory,
-    pub exception_table: ImageDataDirectory,
-    pub certificate_table: ImageDataDirectory,
-    pub base_relocation_table: ImageDataDirectory,
-    pub debug: ImageDataDirectory,
-    pub architecture: ImageDataDirectory,
-    pub global_ptr: ImageDataDirectory,
-    pub tls_table: ImageDataDirectory,
-    pub load_config_table: ImageDataDirectory,
-    pub bound_import: ImageDataDirectory,
-    pub import_address_table: ImageDataDirectory,
-    pub delay_import_descriptor: ImageDataDirectory,
-    pub clr_runtime_header: ImageDataDirectory,
-    pub reserved: ImageDataDirectory,
-}
-
 #[derive(Debug, Clone)]
 pub struct ImageDataDirectory {
     pub virtual_address: u32,
     pub size: u32,
+    pub tag: String,
 }
 
 /// https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#optional-header-windows-specific-fields-image-only
@@ -252,7 +233,7 @@ pub struct StandardFields {
 pub struct OptionalHeader {
     pub std_fields: StandardFields,
     pub win_specific_fields: WindowsSpecificFields,
-    pub data_directories: DataDirectories,
+    pub data_directories: Vec<ImageDataDirectory>,
 }
 
 #[derive(Debug, Clone)]

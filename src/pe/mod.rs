@@ -18,6 +18,8 @@ pub enum PeError {
     IoError(#[from] std::io::Error),
     #[error("Parse Error: {0}")]
     ParseError(String),
+    #[error("Missing Section: {0}")]
+    MissingSection(String),
 }
 
 //  TODO: parse the string tables
@@ -54,6 +56,14 @@ impl PortableExecutable {
         let opt_header = optional_header::parse_opt_header(&mut cursor)?;
         let section_table =
             section_table::parse_section_headers(&mut cursor, coff_header.number_of_sections)?;
+
+        tracing::info!("{:#x?}", opt_header);
+        tracing::info!(
+            "{}",
+            section_table
+                .get_import_table(&cursor.bytes, &opt_header.std_fields.magic)
+                .unwrap()
+        );
         Ok(PortableExecutable {
             pe_signature,
             coff_header,
