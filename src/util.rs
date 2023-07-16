@@ -31,6 +31,14 @@ pub fn u64_from_bytes(le_bytes: &[u8]) -> u64 {
     result
 }
 
+pub fn read_u8_until_null(start: usize, data: &[u8]) -> &[u8] {
+    let mut end = start;
+    while data[end] != 0 {
+        end += 1;
+    }
+    &data[start..end]
+}
+
 pub fn get_msb_u64(num: u64) -> u64 {
     (num >> 63) & 1
 }

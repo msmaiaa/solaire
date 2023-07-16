@@ -1,8 +1,12 @@
 #![allow(non_camel_case_types)]
 
-use crate::util::{get_msb_u32, get_msb_u64, u32_from_bytes, u64_from_bytes};
+use crate::util::{get_msb_u32, get_msb_u64, read_u8_until_null, u32_from_bytes, u64_from_bytes};
 
-use super::{cursor::Cursor, optional_header::ExecutableKind, PeError};
+use super::{
+    cursor::Cursor,
+    optional_header::{ExecutableKind, ImageDataDirectory},
+    PeError,
+};
 use std::str::FromStr;
 
 const ORDINAL_FLAG_X64: u64 = 0x8000000000000000;
@@ -26,17 +30,21 @@ impl SectionTable {
         &self,
         bytes: &Vec<u8>,
         exec_kind: &ExecutableKind,
+        import_table_dir: ImageDataDirectory,
     ) -> Result<ImportTable, PeError> {
         let header = self
             .get_section_header(".idata")
             .ok_or(PeError::MissingSection(
                 "Could not find the .idata section".to_string(),
             ))?;
-        tracing::info!("len {:#x?}", header.raw_data.len());
-        tracing::info!("total len {:#x?}", bytes.len());
-        let mut cursor = Cursor::new(header.raw_data.clone());
-        let mut image_descriptors = vec![];
 
+        let start =
+            (import_table_dir.virtual_address - header.virtual_address) + header.ptr_to_raw_data;
+        let mut cursor = Cursor::new(
+            bytes[start as usize..start as usize + import_table_dir.size as usize].to_vec(),
+        );
+
+        let mut image_descriptors = vec![];
         loop {
             let mut entry = ImageImportDescriptor {
                 og_first_thunk_rva: cursor.read_u32(),
@@ -44,6 +52,7 @@ impl SectionTable {
                 forwarder_chain: cursor.read_u32(),
                 name_rva: cursor.read_u32(),
                 first_thunk: cursor.read_u32(),
+
                 name: "".to_string(),
                 characteristics: 0,
                 og_first_thunk: ImportLookupTable { entries: vec![] },
@@ -57,22 +66,11 @@ impl SectionTable {
                 break;
             }
 
-            //  fuck microsoft docs
             let get_name = || {
                 let name_offset = entry.name_rva - header.virtual_address;
                 let name_address = header.ptr_to_raw_data + name_offset;
 
-                let mut name = vec![];
-                let mut idx = 0;
-                loop {
-                    let byte = bytes[name_address as usize + idx];
-                    if byte == 0 {
-                        break;
-                    }
-                    name.push(byte);
-                    idx += 1;
-                }
-                return name;
+                read_u8_until_null(name_address as usize, &bytes).to_vec()
             };
 
             let get_characteristics = || {
@@ -83,23 +81,17 @@ impl SectionTable {
 
             //  https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#import-lookup-table
             let get_thunk_table = || {
-                let thunk_offset = entry.first_thunk - header.virtual_address;
-                let starting_address =
+                let starting_address: u32 =
                     entry.first_thunk - header.virtual_address + header.ptr_to_raw_data;
-                tracing::debug!("starting_address: {:#x?}", starting_address);
+
                 match exec_kind {
                     ExecutableKind::PE32 => {
                         let mut cursor = Cursor::new(bytes[starting_address as usize..].to_vec());
-                        tracing::info!(
-                            "cursor first element: {:#x?} - size: {}",
-                            cursor.bytes[0],
-                            cursor.bytes.len()
-                        );
+
                         let mut entries = vec![];
                         let mut entries_idx = 0;
                         loop {
                             let data = cursor.read_u32();
-                            tracing::info!("data: {:#x?}", data);
                             if data == 0 {
                                 break;
                             }
@@ -122,18 +114,9 @@ impl SectionTable {
                                 let function_name_bytes =
                                     &bytes[(import_by_name_address as usize + 2)..];
 
-                                let mut func_bytes = vec![];
-                                let mut idx = 0;
-                                loop {
-                                    let byte = function_name_bytes[idx as usize];
-                                    if byte == 0 {
-                                        break;
-                                    }
-                                    func_bytes.push(byte);
-                                    idx += 1;
-                                }
+                                let func_bytes =
+                                    read_u8_until_null(0, function_name_bytes).to_vec();
 
-                                //  Get the function address
                                 let fn_list_addr = ((entry.first_thunk - header.virtual_address)
                                     + header.ptr_to_raw_data)
                                     as usize;
@@ -178,18 +161,9 @@ impl SectionTable {
                                 let function_name_bytes =
                                     &bytes[(import_by_name_address as usize + 2)..];
 
-                                let mut func_bytes = vec![];
-                                let mut idx = 0;
-                                loop {
-                                    let byte = function_name_bytes[idx as usize];
-                                    if byte == 0 {
-                                        break;
-                                    }
-                                    func_bytes.push(byte);
-                                    idx += 1;
-                                }
+                                let func_bytes =
+                                    read_u8_until_null(0, function_name_bytes).to_vec();
 
-                                //  Get the function address
                                 let fn_list_addr = ((entry.first_thunk - header.virtual_address)
                                     + header.ptr_to_raw_data)
                                     as usize;
@@ -211,8 +185,6 @@ impl SectionTable {
             };
             entry.name = String::from_utf8(get_name()).unwrap();
             entry.characteristics = get_characteristics();
-            tracing::debug!("entry: {:#x?}", entry);
-            tracing::debug!("header: {}", header);
             entry.og_first_thunk.entries = get_thunk_table();
             image_descriptors.push(entry);
         }
@@ -386,7 +358,7 @@ impl std::fmt::Display for SectionHeader {
         writeln!(f, "\tptr_to_linenumbers: {:#x}", self.ptr_to_linenumbers)?;
         writeln!(f, "\tnumber_of_relocations: {}", self.number_of_relocations)?;
         writeln!(f, "\tnumber_of_linenumbers: {}", self.number_of_linenumbers)?;
-        //writeln!(f, "\tcharacteristics: {:?}", self.characteristics)?;
+        writeln!(f, "\tcharacteristics: {:?}", self.characteristics)?;
         Ok(())
     }
 }
