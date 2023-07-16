@@ -1,11 +1,12 @@
 #![allow(non_camel_case_types)]
 
-use super::{
-    cursor::Cursor,
-    optional_header::{ExecutableKind, ImageDataDirectory},
-    PeError,
-};
+use crate::util::{get_msb_u32, get_msb_u64, u32_from_bytes, u64_from_bytes};
+
+use super::{cursor::Cursor, optional_header::ExecutableKind, PeError};
 use std::str::FromStr;
+
+const ORDINAL_FLAG_X64: u64 = 0x8000000000000000;
+const ORDINAL_FLAG_X86: u32 = 0x80000000;
 
 #[derive(Debug, Clone)]
 pub struct SectionTable {
@@ -31,25 +32,27 @@ impl SectionTable {
             .ok_or(PeError::MissingSection(
                 "Could not find the .idata section".to_string(),
             ))?;
-
+        tracing::info!("len {:#x?}", header.raw_data.len());
+        tracing::info!("total len {:#x?}", bytes.len());
         let mut cursor = Cursor::new(header.raw_data.clone());
         let mut image_descriptors = vec![];
+
         loop {
             let mut entry = ImageImportDescriptor {
-                import_lookup_table_rva: cursor.read_u32(),
+                og_first_thunk_rva: cursor.read_u32(),
                 timedate_stamp: cursor.read_u32(),
                 forwarder_chain: cursor.read_u32(),
                 name_rva: cursor.read_u32(),
-                import_address_table_rva: cursor.read_u32(),
+                first_thunk: cursor.read_u32(),
                 name: "".to_string(),
                 characteristics: 0,
-                import_lookup_table: ImportLookupTable { entries: vec![] },
+                og_first_thunk: ImportLookupTable { entries: vec![] },
             };
-            if entry.import_lookup_table_rva == 0
+            if entry.og_first_thunk_rva == 0
                 && entry.name_rva == 0
                 && entry.timedate_stamp == 0
                 && entry.forwarder_chain == 0
-                && entry.import_address_table_rva == 0
+                && entry.first_thunk == 0
             {
                 break;
             }
@@ -73,44 +76,95 @@ impl SectionTable {
             };
 
             let get_characteristics = || {
-                let characteristics_offset = entry.import_lookup_table_rva - header.virtual_address;
+                let characteristics_offset = entry.og_first_thunk_rva - header.virtual_address;
                 let characteristics_address = header.ptr_to_raw_data + characteristics_offset;
                 return characteristics_address;
             };
 
             //  https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#import-lookup-table
             let get_thunk_table = || {
-                let thunk_offset = entry.import_address_table_rva - header.virtual_address;
-                let starting_address = header.ptr_to_raw_data + thunk_offset;
+                let thunk_offset = entry.first_thunk - header.virtual_address;
+                let starting_address =
+                    entry.first_thunk - header.virtual_address + header.ptr_to_raw_data;
+                tracing::debug!("starting_address: {:#x?}", starting_address);
                 match exec_kind {
-                    //  FIXME: i'm not done
                     ExecutableKind::PE32 => {
                         let mut cursor = Cursor::new(bytes[starting_address as usize..].to_vec());
+                        tracing::info!(
+                            "cursor first element: {:#x?} - size: {}",
+                            cursor.bytes[0],
+                            cursor.bytes.len()
+                        );
                         let mut entries = vec![];
+                        let mut entries_idx = 0;
                         loop {
                             let data = cursor.read_u32();
+                            tracing::info!("data: {:#x?}", data);
                             if data == 0 {
                                 break;
                             }
                             let msb = get_msb_u32(data);
-                            entries.push(data);
+                            let is_ordinal = (msb & ORDINAL_FLAG_X86) != 0;
+                            if is_ordinal {
+                                //  FIXME: i'm not done
+                                let result = data & !ORDINAL_FLAG_X86;
+                            } else {
+                                let import_by_name_offset = data & 0x7FFFFFFF; // Mask out the MSB'
+
+                                let import_by_name_address = (import_by_name_offset
+                                    - header.virtual_address as u32)
+                                    + header.ptr_to_raw_data as u32;
+                                let hint = u16::from_le_bytes([
+                                    bytes[import_by_name_address as usize],
+                                    bytes[import_by_name_address as usize + 1],
+                                ]);
+
+                                let function_name_bytes =
+                                    &bytes[(import_by_name_address as usize + 2)..];
+
+                                let mut func_bytes = vec![];
+                                let mut idx = 0;
+                                loop {
+                                    let byte = function_name_bytes[idx as usize];
+                                    if byte == 0 {
+                                        break;
+                                    }
+                                    func_bytes.push(byte);
+                                    idx += 1;
+                                }
+
+                                //  Get the function address
+                                let fn_list_addr = ((entry.first_thunk - header.virtual_address)
+                                    + header.ptr_to_raw_data)
+                                    as usize;
+
+                                entries.push(ImportLookupTableEntry {
+                                    hint,
+                                    is_ordinal,
+                                    name: func_bytes,
+                                    func_address: FuncAddress::X86(u32_from_bytes(
+                                        &bytes[fn_list_addr + (4 * entries_idx)..],
+                                    )),
+                                });
+                                entries_idx += 1;
+                            };
                         }
-                        return vec![];
+                        return entries;
                     }
                     ExecutableKind::PE32_PLUS => {
-                        const BIT_MASK: u64 = 0x8000000000000000;
                         let mut cursor = Cursor::new(bytes[starting_address as usize..].to_vec());
                         let mut entries = vec![];
+                        let mut entries_idx = 0;
                         loop {
                             let data = cursor.read_u64();
                             if data == 0 {
                                 break;
                             }
                             let msb = get_msb_u64(data);
-                            let is_ordinal = (msb & BIT_MASK) != 0;
+                            let is_ordinal = (msb & ORDINAL_FLAG_X64) != 0;
                             if is_ordinal {
                                 //  FIXME: i'm not done
-                                let result = data & !BIT_MASK;
+                                let result = data & !ORDINAL_FLAG_X64;
                             } else {
                                 let import_by_name_offset = data & 0x7FFFFFFF; // Mask out the MSB
                                 let import_by_name_address = (import_by_name_offset
@@ -127,27 +181,39 @@ impl SectionTable {
                                 let mut func_bytes = vec![];
                                 let mut idx = 0;
                                 loop {
-                                    let byte = function_name_bytes[idx];
+                                    let byte = function_name_bytes[idx as usize];
                                     if byte == 0 {
                                         break;
                                     }
                                     func_bytes.push(byte);
                                     idx += 1;
                                 }
+
+                                //  Get the function address
+                                let fn_list_addr = ((entry.first_thunk - header.virtual_address)
+                                    + header.ptr_to_raw_data)
+                                    as usize;
+
                                 entries.push(ImportLookupTableEntry {
                                     hint,
                                     is_ordinal,
                                     name: func_bytes,
-                                })
+                                    func_address: FuncAddress::X64(u64_from_bytes(
+                                        &bytes[fn_list_addr + (8 * entries_idx)..],
+                                    )),
+                                });
+                                entries_idx += 1;
                             };
                         }
                         return entries;
                     }
                 }
             };
-            entry.import_lookup_table.entries = get_thunk_table();
             entry.name = String::from_utf8(get_name()).unwrap();
             entry.characteristics = get_characteristics();
+            tracing::debug!("entry: {:#x?}", entry);
+            tracing::debug!("header: {}", header);
+            entry.og_first_thunk.entries = get_thunk_table();
             image_descriptors.push(entry);
         }
 
@@ -180,14 +246,6 @@ impl SectionTable {
     }
 }
 
-fn get_msb_u64(num: u64) -> u64 {
-    (num >> 63) & 1
-}
-
-fn get_msb_u32(num: u32) -> u32 {
-    (num >> 31) & 1
-}
-
 #[derive(Debug, Clone)]
 pub struct ImportLookupTable {
     pub entries: Vec<ImportLookupTableEntry>,
@@ -198,6 +256,13 @@ pub struct ImportLookupTableEntry {
     pub hint: u16,
     pub is_ordinal: bool,
     pub name: Vec<u8>,
+    pub func_address: FuncAddress,
+}
+
+#[derive(Debug, Clone)]
+pub enum FuncAddress {
+    X64(u64),
+    X86(u32),
 }
 
 #[derive(Debug, Clone)]
@@ -211,20 +276,16 @@ impl std::fmt::Display for ImportTable {
             writeln!(f, "name: {}", descriptor.name)?;
             writeln!(
                 f,
-                "import_lookup_table_rva: {:#x}",
-                descriptor.import_lookup_table_rva
+                "og_first_thunk_rva: {:#x}",
+                descriptor.og_first_thunk_rva
             )?;
             writeln!(f, "timedate_stamp: {:#x}", descriptor.timedate_stamp)?;
             writeln!(f, "forwarder_chain: {:#x}", descriptor.forwarder_chain)?;
             writeln!(f, "name_rva: {:#x}", descriptor.name_rva)?;
-            writeln!(
-                f,
-                "import_address_table_rva: {:#x}",
-                descriptor.import_address_table_rva
-            )?;
+            writeln!(f, "first_thunk: {:#x}", descriptor.first_thunk)?;
             writeln!(f, "characteristics: {:#x}", descriptor.characteristics)?;
-            writeln!(f, "import_lookup_table:")?;
-            for entry in &descriptor.import_lookup_table.entries {
+            writeln!(f, "og_first_thunk:")?;
+            for entry in &descriptor.og_first_thunk.entries {
                 writeln!(f, "\tis_ordinal: {}", entry.is_ordinal)?;
                 writeln!(f, "\thint: {:#x}", entry.hint)?;
                 writeln!(
@@ -232,6 +293,7 @@ impl std::fmt::Display for ImportTable {
                     "\tname: {}",
                     String::from_utf8(entry.name.clone()).unwrap()
                 )?;
+                writeln!(f, "\tfunc_address: {:#x?}", entry.func_address)?;
                 writeln!(f, "-------------------")?;
             }
         }
@@ -248,16 +310,16 @@ pub struct ExportTableEntryX64 {
 
 #[derive(Debug, Clone)]
 pub struct ImageImportDescriptor {
-    pub import_lookup_table_rva: u32,
+    pub og_first_thunk_rva: u32,
     pub timedate_stamp: u32,
     pub forwarder_chain: u32,
     pub name_rva: u32,
-    pub import_address_table_rva: u32,
+    pub first_thunk: u32,
 
     ///  not in MS docs
     pub name: String,
     pub characteristics: u32, // FIXME: Need to parse to flags?,
-    pub import_lookup_table: ImportLookupTable,
+    pub og_first_thunk: ImportLookupTable,
 }
 
 /// https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#section-table-section-headers

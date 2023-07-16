@@ -30,3 +30,11 @@ pub fn u64_from_bytes(le_bytes: &[u8]) -> u64 {
     let result = u64::from_le_bytes(le_bytes[0..8].try_into().unwrap());
     result
 }
+
+pub fn get_msb_u64(num: u64) -> u64 {
+    (num >> 63) & 1
+}
+
+pub fn get_msb_u32(num: u32) -> u32 {
+    (num >> 31) & 1
+}
