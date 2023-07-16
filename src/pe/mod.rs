@@ -1,8 +1,16 @@
 pub mod coff;
 pub mod cursor;
+pub mod import_table;
 pub mod optional_header;
 pub mod section_table;
+
 use thiserror::Error;
+use windows::Win32::System::Diagnostics::Debug::IMAGE_DIRECTORY_ENTRY_IMPORT;
+
+use self::{
+    import_table::{get_import_table, ImportTable},
+    optional_header::ExecutableKind,
+};
 
 #[derive(Clone, Debug)]
 pub struct PortableExecutable {
@@ -10,6 +18,9 @@ pub struct PortableExecutable {
     pub coff_header: coff::CoffHeader,
     pub opt_header: optional_header::OptionalHeader,
     pub section_table: section_table::SectionTable,
+
+    pub executable_type: ExecutableKind,
+    pub bytes: Vec<u8>,
 }
 
 #[derive(Error, Debug)]
@@ -20,6 +31,8 @@ pub enum PeError {
     ParseError(String),
     #[error("Missing Section: {0}")]
     MissingSection(String),
+    #[error("Missing Table: {0}")]
+    MissingTable(String),
 }
 
 //  TODO: parse the string tables
@@ -60,9 +73,20 @@ impl PortableExecutable {
         Ok(PortableExecutable {
             pe_signature,
             coff_header,
+            executable_type: opt_header.std_fields.magic.clone(),
             opt_header,
             section_table,
+            bytes: cursor.bytes,
         })
+    }
+
+    pub fn get_import_table(&self) -> Result<ImportTable, PeError> {
+        get_import_table(
+            &self.section_table,
+            &self.bytes,
+            &self.executable_type,
+            self.opt_header.data_directories[IMAGE_DIRECTORY_ENTRY_IMPORT.0 as usize].clone(),
+        )
     }
 }
 

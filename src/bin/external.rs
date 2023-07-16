@@ -4,7 +4,7 @@ use clap::{Parser, Subcommand};
 use solaire::{external::*, process::*};
 use tracing::Level;
 use tracing_subscriber::FmtSubscriber;
-use windows::Win32::Foundation::CloseHandle;
+use windows::Win32::{Foundation::CloseHandle, System::Threading::PROCESS_ALL_ACCESS};
 
 #[derive(Parser)]
 struct Cli {
@@ -18,12 +18,16 @@ enum CliCommands {
     Ac,
 }
 
-fn test_ac_x86(p: Process) {
+fn test_ac_x86() {
+    let p = Process::from_executable_name("ac_client.exe")
+        .expect("Error on get_process_by_exec")
+        .expect("Couldn't find ac_client.exe process");
+
     let addr_local_player = 0x10f4f4;
     let current_weapon_ammo_offsets = vec![0x374, 0x14, 0x0];
     let recoil_fn_addr = 0x63786;
 
-    let h_proc = p.open().unwrap();
+    let h_proc = p.open(PROCESS_ALL_ACCESS).unwrap();
 
     let module_base_addr = p.module_base_addr("ac_client.exe").unwrap().unwrap();
     tracing::info!("module_base_addr: {:?}", module_base_addr);
@@ -79,10 +83,7 @@ fn main() {
     if let Some(cmd) = cli.command {
         match cmd {
             CliCommands::Ac => {
-                let p = Process::from_executable_name("ac_client.exe")
-                    .expect("Error on get_process_by_exec")
-                    .expect("Couldn't find ac_client.exe process");
-                test_ac_x86(p);
+                test_ac_x86();
             }
         }
     }

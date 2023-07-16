@@ -75,28 +75,28 @@ pub fn parse_opt_header(cursor: &mut Cursor) -> Result<OptionalHeader, PeError> 
             ImageDataDirectory {
                 virtual_address: cursor.read_u32(),
                 size: cursor.read_u32(),
-                tag: $tag,
+                tag: String::from($tag),
             }
         };
     }
 
     let data_directories = vec![
-        image_data_dir!(String::from("export_table")),
-        image_data_dir!(String::from("import_table")),
-        image_data_dir!(String::from("resource_table")),
-        image_data_dir!(String::from("exception_table")),
-        image_data_dir!(String::from("certificate_table")),
-        image_data_dir!(String::from("base_relocation_table")),
-        image_data_dir!(String::from("debug")),
-        image_data_dir!(String::from("architecture")),
-        image_data_dir!(String::from("global_ptr")),
-        image_data_dir!(String::from("tls_table")),
-        image_data_dir!(String::from("load_config_table")),
-        image_data_dir!(String::from("bound_import")),
-        image_data_dir!(String::from("import_address_table")),
-        image_data_dir!(String::from("delay_import_descriptor")),
-        image_data_dir!(String::from("clr_runtime_header")),
-        image_data_dir!(String::from("reserved")),
+        image_data_dir!("export_table"),
+        image_data_dir!("import_table"),
+        image_data_dir!("resource_table"),
+        image_data_dir!("exception_table"),
+        image_data_dir!("certificate_table"),
+        image_data_dir!("base_relocation_table"),
+        image_data_dir!("debug"),
+        image_data_dir!("architecture"),
+        image_data_dir!("global_ptr"),
+        image_data_dir!("tls_table"),
+        image_data_dir!("load_config_table"),
+        image_data_dir!("bound_import"),
+        image_data_dir!("import_address_table"),
+        image_data_dir!("delay_import_descriptor"),
+        image_data_dir!("clr_runtime_header"),
+        image_data_dir!("reserved"),
     ];
 
     Ok(OptionalHeader {

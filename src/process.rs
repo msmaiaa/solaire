@@ -4,7 +4,7 @@ use windows::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, Module32First, Module32Next, Process32First, Process32Next,
     MODULEENTRY32, PROCESSENTRY32, TH32CS_SNAPMODULE, TH32CS_SNAPMODULE32, TH32CS_SNAPPROCESS,
 };
-use windows::Win32::System::Threading::{OpenProcess, PROCESS_ALL_ACCESS};
+use windows::Win32::System::Threading::{OpenProcess, PROCESS_ACCESS_RIGHTS};
 
 use crate::util::wchar_arr_to_string;
 
@@ -99,8 +99,11 @@ impl Process {
         self.get_module(mod_name).map(|m| m.map(|m| m.modBaseAddr))
     }
 
-    pub fn open(&self) -> Result<HANDLE, windows::core::Error> {
-        unsafe { OpenProcess(PROCESS_ALL_ACCESS, false, self.th32ProcessID) }
+    pub fn open(
+        &self,
+        dwdesiredaccess: PROCESS_ACCESS_RIGHTS,
+    ) -> Result<HANDLE, windows::core::Error> {
+        unsafe { OpenProcess(dwdesiredaccess, false, self.th32ProcessID) }
     }
 
     pub fn from_pid(pid: u32) -> Result<Option<Process>, windows::core::Error> {
