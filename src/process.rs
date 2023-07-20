@@ -1,10 +1,11 @@
 use crate::prelude::CHAR;
-use windows::Win32::Foundation::HANDLE;
+use windows::Win32::Foundation::{GetLastError, HANDLE, HMODULE, WIN32_ERROR};
 use windows::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, Module32First, Module32Next, Process32First, Process32Next,
     MODULEENTRY32, PROCESSENTRY32, TH32CS_SNAPMODULE, TH32CS_SNAPMODULE32, TH32CS_SNAPPROCESS,
 };
-use windows::Win32::System::Threading::{OpenProcess, PROCESS_ACCESS_RIGHTS};
+use windows::Win32::System::ProcessStatus::GetModuleFileNameExA;
+use windows::Win32::System::Threading::{OpenProcess, PROCESS_ACCESS_RIGHTS, PROCESS_ALL_ACCESS};
 
 use crate::util::wchar_arr_to_string;
 
@@ -90,6 +91,35 @@ impl Process {
             }
         }
         Ok(None)
+    }
+
+    pub fn get_module_file_name(
+        &self,
+        handle: Option<HANDLE>,
+        module: Option<HMODULE>,
+    ) -> Result<[u8; 260], WIN32_ERROR> {
+        let mut lpfilename = [0u8; 260];
+        unsafe {
+            //  FIXME: need to create a error enum
+            let ok = GetModuleFileNameExA(
+                handle.unwrap_or(self.open(PROCESS_ALL_ACCESS).unwrap()),
+                module.unwrap_or(HMODULE::default()),
+                &mut lpfilename,
+            );
+            tracing::debug!("Module file name: {:?}", lpfilename);
+            return match ok != 0 {
+                true => Ok(lpfilename),
+                false => Err(GetLastError()),
+            };
+        }
+    }
+
+    pub fn get_executable_path(&self, handle: Option<HANDLE>) -> Result<String, WIN32_ERROR> {
+        self.get_module_file_name(handle, None).map(|s| {
+            String::from_utf8_lossy(&s)
+                .trim_matches(char::from(0))
+                .to_string()
+        })
     }
 
     pub fn module_base_addr<T: Into<String>>(
