@@ -96,14 +96,14 @@ pub fn get_import_table(
                         let func_name_bytes =
                             read_u8_until_null(import_by_name_address as usize + 2, bytes).to_vec();
 
-                        let fn_list_addr = rva2foa(entry.first_thunk, section_table) as usize;
+                        //let fn_list_addr = rva2foa(entry.first_thunk, section_table) as usize;
 
                         entries.push(ImportLookupTableEntry {
                             is_ordinal,
                             hint,
                             name: func_name_bytes,
                             func_ptr_address: FuncAddress::X86(
-                                fn_list_addr as u32
+                                entry.first_thunk as u32
                                     + (std::mem::size_of::<u32>() * entries_idx) as u32,
                             ),
                         });
@@ -133,14 +133,14 @@ pub fn get_import_table(
                         let func_name_bytes =
                             read_u8_until_null(import_by_name_address as usize + 2, bytes).to_vec();
 
-                        let fn_list_addr = rva2foa(entry.first_thunk, section_table) as usize;
+                        //let fn_list_addr = rva2foa(entry.first_thunk, section_table) as usize;
 
                         entries.push(ImportLookupTableEntry {
                             hint,
                             is_ordinal,
                             name: func_name_bytes,
                             func_ptr_address: FuncAddress::X64(
-                                fn_list_addr as u64
+                                entry.first_thunk as u64
                                     + (std::mem::size_of::<u64>() * entries_idx) as u64,
                             ),
                         });
