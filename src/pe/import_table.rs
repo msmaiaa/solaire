@@ -37,7 +37,7 @@ pub fn get_import_table(
     let mut image_descriptors = vec![];
     loop {
         let mut entry = ImageImportDescriptor {
-            og_first_thunk_rva: cursor.read_u32(),
+            import_lookup_table_rva: cursor.read_u32(),
             timedate_stamp: cursor.read_u32(),
             forwarder_chain: cursor.read_u32(),
             name_rva: cursor.read_u32(),
@@ -45,9 +45,9 @@ pub fn get_import_table(
 
             name: "".to_string(),
             characteristics: 0,
-            og_first_thunk: ImportLookupTable { entries: vec![] },
+            import_lookup_table: ImportLookupTable { entries: vec![] },
         };
-        if entry.og_first_thunk_rva == 0
+        if entry.import_lookup_table_rva == 0
             && entry.name_rva == 0
             && entry.timedate_stamp == 0
             && entry.forwarder_chain == 0
@@ -62,10 +62,12 @@ pub fn get_import_table(
         };
 
         let get_characteristics = || {
-            let characteristics_offset = rva2foa(entry.og_first_thunk_rva, section_table);
+            let characteristics_offset = rva2foa(entry.import_lookup_table_rva, section_table);
             return characteristics_offset;
         };
 
+        // FIXME: fix padding parsing
+        // Hint/Name Table
         let get_lookup_table = || {
             let starting_address: u32 = rva2foa(entry.first_thunk, section_table);
             let mut cursor = Cursor::new(bytes[starting_address as usize..].to_vec());
@@ -91,18 +93,19 @@ pub fn get_import_table(
                             bytes[import_by_name_address as usize + 1],
                         ]);
 
-                        let func_bytes =
+                        let func_name_bytes =
                             read_u8_until_null(import_by_name_address as usize + 2, bytes).to_vec();
 
                         let fn_list_addr = rva2foa(entry.first_thunk, section_table) as usize;
 
                         entries.push(ImportLookupTableEntry {
-                            hint,
                             is_ordinal,
-                            name: func_bytes,
-                            func_address: FuncAddress::X86(u32_from_bytes(
-                                &bytes[fn_list_addr + (std::mem::size_of::<u32>() * entries_idx)..],
-                            )),
+                            hint,
+                            name: func_name_bytes,
+                            func_ptr_address: FuncAddress::X86(
+                                fn_list_addr as u32
+                                    + (std::mem::size_of::<u32>() * entries_idx) as u32,
+                            ),
                         });
                         entries_idx += 1;
                     }
@@ -127,7 +130,7 @@ pub fn get_import_table(
                             bytes[import_by_name_address as usize + 1],
                         ]);
 
-                        let func_name =
+                        let func_name_bytes =
                             read_u8_until_null(import_by_name_address as usize + 2, bytes).to_vec();
 
                         let fn_list_addr = rva2foa(entry.first_thunk, section_table) as usize;
@@ -135,10 +138,11 @@ pub fn get_import_table(
                         entries.push(ImportLookupTableEntry {
                             hint,
                             is_ordinal,
-                            name: func_name,
-                            func_address: FuncAddress::X86(u32_from_bytes(
-                                &bytes[fn_list_addr + (std::mem::size_of::<u32>() * entries_idx)..],
-                            )),
+                            name: func_name_bytes,
+                            func_ptr_address: FuncAddress::X64(
+                                fn_list_addr as u64
+                                    + (std::mem::size_of::<u64>() * entries_idx) as u64,
+                            ),
                         });
                         entries_idx += 1;
                     }
@@ -147,7 +151,7 @@ pub fn get_import_table(
             return entries;
         };
 
-        entry.og_first_thunk.entries = get_lookup_table();
+        entry.import_lookup_table.entries = get_lookup_table();
         entry.name = String::from_utf8(get_name().to_vec()).unwrap();
 
         // FIXME: parse characteristics
@@ -162,18 +166,23 @@ pub struct ImportTable {
     pub image_descriptors: Vec<ImageImportDescriptor>,
 }
 
+/// A Dll
 #[derive(Debug, Clone)]
 pub struct ImageImportDescriptor {
-    pub og_first_thunk_rva: u32,
+    /// Import Lookup Table RVA
+    pub import_lookup_table_rva: u32,
     pub timedate_stamp: u32,
     pub forwarder_chain: u32,
+    /// DLL Name RVA
     pub name_rva: u32,
+    /// Import Address Table RVA
     pub first_thunk: u32,
 
     ///  not in MS docs
     pub name: String,
     pub characteristics: u32, // FIXME: Need to parse to flags?,
-    pub og_first_thunk: ImportLookupTable,
+    /// Import Lookup Table (aka Import Name Table in IDA Pro)
+    pub import_lookup_table: ImportLookupTable,
 }
 
 #[derive(Debug, Clone)]
@@ -181,17 +190,19 @@ pub struct ImportLookupTable {
     pub entries: Vec<ImportLookupTableEntry>,
 }
 
+//  TODO: refactor this, do we really need all these fields?
 #[derive(Debug, Clone)]
 pub struct ImportLookupTableEntry {
     pub hint: u16,
     pub is_ordinal: bool,
     pub name: Vec<u8>,
-    pub func_address: FuncAddress,
+    /// module base address + func ptr address = ptr to the function!
+    pub func_ptr_address: FuncAddress,
 }
 
 impl ImportLookupTableEntry {
     pub fn name(&self) -> String {
-        String::from_utf8(self.name.clone()).unwrap()
+        String::from_utf8(self.name.clone()).unwrap_or("[NAMELESS]".to_string())
     }
 }
 
@@ -216,16 +227,16 @@ impl std::fmt::Display for ImportTable {
             writeln!(f, "name: {}", descriptor.name)?;
             writeln!(
                 f,
-                "og_first_thunk_rva: {:#x}",
-                descriptor.og_first_thunk_rva
+                "import_lookup_table_rva: {:#x}",
+                descriptor.import_lookup_table_rva
             )?;
             writeln!(f, "timedate_stamp: {:#x}", descriptor.timedate_stamp)?;
             writeln!(f, "forwarder_chain: {:#x}", descriptor.forwarder_chain)?;
             writeln!(f, "name_rva: {:#x}", descriptor.name_rva)?;
             writeln!(f, "first_thunk: {:#x}", descriptor.first_thunk)?;
             writeln!(f, "characteristics: {:#x}", descriptor.characteristics)?;
-            writeln!(f, "og_first_thunk:")?;
-            for entry in &descriptor.og_first_thunk.entries {
+            writeln!(f, "import_lookup_table:")?;
+            for entry in &descriptor.import_lookup_table.entries {
                 writeln!(f, "\tis_ordinal: {}", entry.is_ordinal)?;
                 writeln!(f, "\thint: {:#x}", entry.hint)?;
                 writeln!(
@@ -233,7 +244,7 @@ impl std::fmt::Display for ImportTable {
                     "\tname: {}",
                     String::from_utf8(entry.name.clone()).unwrap()
                 )?;
-                writeln!(f, "\tfunc_address: {:#x?}", entry.func_address)?;
+                writeln!(f, "\tfunc_ptr_address: {:#x?}", entry.func_ptr_address)?;
                 writeln!(f, "-------------------")?;
             }
         }

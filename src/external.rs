@@ -32,16 +32,16 @@ macro_rules! gen_multilevel_ptr {
             paste::paste! {
                 pub fn [<get_multilevel_ptr_$_type>](
                     h_proc: HANDLE,
-                    starting_address: *mut c_void,
+                    starting_address: $_type,
                     offsets: Vec<$_type>,
-                ) -> Result<*mut c_void, WIN32_ERROR> {
+                ) -> Result<$_type, WIN32_ERROR> {
                     let mut addr = starting_address as $_type;
 
                     for offset in offsets {
                             addr = [<read_mem_$_type>](h_proc, addr as usize)?;
                         addr = addr + offset;
                     }
-                    Ok(addr as *mut c_void)
+                    Ok(addr)
                 }
 
             }
