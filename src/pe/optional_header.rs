@@ -1,5 +1,6 @@
 #![allow(non_camel_case_types)]
 
+use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
 use super::{cursor::Cursor, PeError};
@@ -270,7 +271,7 @@ impl FromStr for DllCharacteristics {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub enum ExecutableKind {
     PE32,
     PE32_PLUS,

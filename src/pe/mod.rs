@@ -1,5 +1,5 @@
-pub mod coff;
 pub mod cursor;
+pub mod file_header;
 pub mod import_table;
 pub mod optional_header;
 pub mod section_table;
@@ -14,13 +14,17 @@ use self::{
 
 #[derive(Clone, Debug)]
 pub struct PortableExecutable {
-    pub pe_signature: u16,
-    pub coff_header: coff::CoffHeader,
-    pub opt_header: optional_header::OptionalHeader,
+    pub nt_headers: NtHeaders,
     pub section_table: section_table::SectionTable,
-
     pub executable_type: ExecutableKind,
     pub bytes: Vec<u8>,
+}
+
+#[derive(Clone, Debug)]
+pub struct NtHeaders {
+    pub pe_signature: u16,
+    pub file_header: file_header::FileHeader,
+    pub opt_header: optional_header::OptionalHeader,
 }
 
 #[derive(Error, Debug)]
@@ -63,18 +67,22 @@ impl PortableExecutable {
         //  skip the 2 null bytes
         cursor.skip(2);
 
-        let coff_header = coff::parse_coff(&mut cursor)?;
+        let file_header = file_header::parse_file_header(&mut cursor)?;
 
         //  FIXME: skip is optional, do i even check if it's there or not?
         let opt_header = optional_header::parse_opt_header(&mut cursor)?;
+        let magic = opt_header.std_fields.magic.clone();
         let section_table =
-            section_table::parse_section_headers(&mut cursor, coff_header.number_of_sections)?;
+            section_table::parse_section_headers(&mut cursor, file_header.number_of_sections)?;
 
-        Ok(PortableExecutable {
+        let nt_headers = NtHeaders {
             pe_signature,
-            coff_header,
-            executable_type: opt_header.std_fields.magic.clone(),
+            file_header,
             opt_header,
+        };
+        Ok(PortableExecutable {
+            nt_headers,
+            executable_type: magic,
             section_table,
             bytes: cursor.bytes,
         })
@@ -85,7 +93,8 @@ impl PortableExecutable {
             &self.section_table,
             &self.bytes,
             &self.executable_type,
-            self.opt_header.data_directories[IMAGE_DIRECTORY_ENTRY_IMPORT.0 as usize].clone(),
+            self.nt_headers.opt_header.data_directories[IMAGE_DIRECTORY_ENTRY_IMPORT.0 as usize]
+                .clone(),
         )
     }
 }

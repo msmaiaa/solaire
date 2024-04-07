@@ -333,6 +333,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde"
+version = "1.0.178"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "60363bdd39a7be0266a520dab25fdc9241d2f987b08a01e01f0ec6d06a981348"
+dependencies = [
+ "serde_derive",
+]
+
+[[package]]
+name = "serde_derive"
+version = "1.0.178"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f28482318d6641454cb273da158647922d1be6b5a2fcc6165cd89ebdd7ed576b"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.25",
+]
+
+[[package]]
 name = "sharded-slab"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -356,6 +376,7 @@ dependencies = [
  "custom_error",
  "num",
  "paste",
+ "serde",
  "thiserror",
  "tracing",
  "tracing-subscriber",

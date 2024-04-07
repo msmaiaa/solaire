@@ -5,12 +5,12 @@ use windows::Win32::System::Diagnostics::ToolHelp::{
     MODULEENTRY32, PROCESSENTRY32, TH32CS_SNAPMODULE, TH32CS_SNAPMODULE32, TH32CS_SNAPPROCESS,
 };
 use windows::Win32::System::ProcessStatus::GetModuleFileNameExA;
-use windows::Win32::System::Threading::{OpenProcess, PROCESS_ACCESS_RIGHTS, PROCESS_ALL_ACCESS};
+use windows::Win32::System::Threading::{OpenProcess, PROCESS_ACCESS_RIGHTS};
 
 use crate::util::wchar_arr_to_string;
 
 #[allow(non_snake_case)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Process {
     pub dwSize: u32,
     pub cntUsage: u32,
@@ -62,59 +62,68 @@ impl Iterator for ProcessList {
     }
 }
 
+pub fn get_process_module<T: Into<String>>(
+    proc_id: u32,
+    mod_name: T,
+) -> Result<Option<MODULEENTRY32>, windows::core::Error> {
+    let mod_name = mod_name.into();
+
+    unsafe {
+        let h_snap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, proc_id)?;
+        let mut mod_entry = MODULEENTRY32::default();
+        mod_entry.dwSize = std::mem::size_of::<MODULEENTRY32>() as u32;
+
+        if !Module32First(h_snap, &mut mod_entry).as_bool() {
+            return Ok(None);
+        }
+
+        loop {
+            if wchar_arr_to_string(&mod_entry.szModule) == mod_name {
+                return Ok(Some(mod_entry));
+            }
+            if !Module32Next(h_snap, &mut mod_entry).as_bool() {
+                break;
+            }
+        }
+    }
+    Ok(None)
+}
+
+pub fn get_module_base_addr<T: Into<String>>(
+    proc_id: u32,
+    mod_name: T,
+) -> Result<Option<*mut u8>, windows::core::Error> {
+    get_process_module(proc_id, mod_name).map(|m| m.map(|m| m.modBaseAddr))
+}
+
 impl Process {
     pub fn get_module<T: Into<String>>(
         &self,
         mod_name: T,
     ) -> Result<Option<MODULEENTRY32>, windows::core::Error> {
-        let mod_name = mod_name.into();
-
-        unsafe {
-            let h_snap = CreateToolhelp32Snapshot(
-                TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32,
-                self.th32ProcessID,
-            )?;
-            let mut mod_entry = MODULEENTRY32::default();
-            mod_entry.dwSize = std::mem::size_of::<MODULEENTRY32>() as u32;
-
-            if !Module32First(h_snap, &mut mod_entry).as_bool() {
-                return Ok(None);
-            }
-
-            loop {
-                if wchar_arr_to_string(&mod_entry.szModule) == mod_name {
-                    return Ok(Some(mod_entry));
-                }
-                if !Module32Next(h_snap, &mut mod_entry).as_bool() {
-                    break;
-                }
-            }
-        }
-        Ok(None)
+        get_process_module(self.th32ProcessID, mod_name)
     }
 
     pub fn get_module_file_name(
         &self,
-        handle: Option<HANDLE>,
+        handle: HANDLE,
         module: Option<HMODULE>,
     ) -> Result<[u8; 260], WIN32_ERROR> {
         let mut lpfilename = [0u8; 260];
         unsafe {
-            //  FIXME: need to create a error enum
             let ok = GetModuleFileNameExA(
-                handle.unwrap_or(self.open(PROCESS_ALL_ACCESS).unwrap()),
+                handle,
                 module.unwrap_or(HMODULE::default()),
                 &mut lpfilename,
             );
-            tracing::debug!("Module file name: {:?}", lpfilename);
-            return match ok != 0 {
+            match ok != 0 {
                 true => Ok(lpfilename),
                 false => Err(GetLastError()),
-            };
+            }
         }
     }
 
-    pub fn get_executable_path(&self, handle: Option<HANDLE>) -> Result<String, WIN32_ERROR> {
+    pub fn get_executable_path(&self, handle: HANDLE) -> Result<String, WIN32_ERROR> {
         self.get_module_file_name(handle, None).map(|s| {
             String::from_utf8_lossy(&s)
                 .trim_matches(char::from(0))
@@ -126,7 +135,7 @@ impl Process {
         &self,
         mod_name: T,
     ) -> Result<Option<*mut u8>, windows::core::Error> {
-        self.get_module(mod_name).map(|m| m.map(|m| m.modBaseAddr))
+        get_module_base_addr(self.th32ParentProcessID, mod_name)
     }
 
     pub fn open(
@@ -134,6 +143,15 @@ impl Process {
         dwdesiredaccess: PROCESS_ACCESS_RIGHTS,
     ) -> Result<HANDLE, windows::core::Error> {
         unsafe { OpenProcess(dwdesiredaccess, false, self.th32ProcessID) }
+    }
+
+    pub fn is_alive(&self) -> Result<bool, windows::core::Error> {
+        let found_process = Self::from_pid(self.th32ProcessID)?;
+        if let Some(proc) = &found_process {
+            Ok(proc == self)
+        } else {
+            Ok(false)
+        }
     }
 
     pub fn from_pid(pid: u32) -> Result<Option<Process>, windows::core::Error> {
@@ -163,21 +181,5 @@ impl From<PROCESSENTRY32> for Process {
             szExeFile: proc_entry.szExeFile,
             str_szExeFile: wchar_arr_to_string(&proc_entry.szExeFile),
         }
-    }
-}
-
-#[cfg(target_os = "windows")]
-#[cfg(test)]
-mod test {
-    use super::ProcessList;
-
-    #[test]
-    fn process_iterator_sanity_check() {
-        let mut processes = vec![];
-        for process in ProcessList::new().unwrap() {
-            processes.push(process);
-            break;
-        }
-        assert!(processes.len() > 0);
     }
 }

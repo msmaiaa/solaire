@@ -5,8 +5,8 @@ use std::str::FromStr;
 use super::{cursor::Cursor, PeError};
 
 /// https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#coff-file-header-object-and-image
-pub fn parse_coff(cursor: &mut Cursor) -> Result<CoffHeader, PeError> {
-    let header = CoffHeader {
+pub fn parse_file_header(cursor: &mut Cursor) -> Result<FileHeader, PeError> {
+    let header = FileHeader {
         machine: Machine::try_from(cursor.read_u16())?,
         number_of_sections: cursor.read_u16(),
         time_date_stamp: cursor.read_u32(),
@@ -27,7 +27,7 @@ pub fn parse_coff(cursor: &mut Cursor) -> Result<CoffHeader, PeError> {
 
 /// https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#coff-file-header-object-and-image
 #[derive(Debug, Clone)]
-pub struct CoffHeader {
+pub struct FileHeader {
     pub machine: Machine,
     pub number_of_sections: u16,
     pub time_date_stamp: u32,

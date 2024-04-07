@@ -29,18 +29,19 @@ fn test_ac_x86() {
 
     let h_proc = p.open(PROCESS_ALL_ACCESS).unwrap();
 
+    let path = p.get_executable_path(h_proc).map_err(|e| {
+        tracing::error!("Error on get_module_file_name: {:?}", e);
+        e
+    });
+    tracing::info!("path: {:?}", path);
     let module_base_addr = p.module_base_addr("ac_client.exe").unwrap().unwrap();
     tracing::info!("module_base_addr: {:?}", module_base_addr);
 
     let addr_local_player_ptr = module_base_addr as u32 + addr_local_player;
     tracing::info!("local player ptr address: {:x?}", addr_local_player_ptr);
 
-    let ammo_addr = get_multilevel_ptr_u32(
-        h_proc,
-        addr_local_player_ptr as *mut c_void,
-        current_weapon_ammo_offsets,
-    )
-    .unwrap();
+    let ammo_addr =
+        get_multilevel_ptr_u32(h_proc, addr_local_player_ptr, current_weapon_ammo_offsets).unwrap();
     tracing::info!("ammo_addr: {:?}", ammo_addr);
 
     let ammo_amount = read_mem_u32(h_proc, ammo_addr as usize).unwrap();
@@ -48,7 +49,7 @@ fn test_ac_x86() {
 
     let new_ammo = 6969;
     tracing::info!("writing {} to the current weapon ammo address", new_ammo);
-    write_mem(h_proc, ammo_addr, new_ammo).unwrap();
+    write_mem(h_proc, ammo_addr as *mut c_void, new_ammo).unwrap();
 
     tracing::info!(
         "new ammo amount: {:?}",
