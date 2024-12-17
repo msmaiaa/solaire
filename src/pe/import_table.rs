@@ -166,7 +166,7 @@ pub struct ImportTable {
     pub image_descriptors: Vec<ImageImportDescriptor>,
 }
 
-/// A Dll
+/// Aka _IMAGE_IMPORT_DESCRIPTOR
 #[derive(Debug, Clone)]
 pub struct ImageImportDescriptor {
     /// Import Lookup Table RVA

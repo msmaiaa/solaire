@@ -5,19 +5,32 @@ pub mod optional_header;
 pub mod section_table;
 
 use thiserror::Error;
-use windows::Win32::System::Diagnostics::Debug::IMAGE_DIRECTORY_ENTRY_IMPORT;
+use windows::Win32::System::Diagnostics::Debug::{
+    IMAGE_DIRECTORY_ENTRY, IMAGE_DIRECTORY_ENTRY_IMPORT,
+};
 
 use self::{
     import_table::{get_import_table, ImportTable},
-    optional_header::ExecutableKind,
+    optional_header::{ExecutableKind, ImageDataDirectory},
 };
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct PortableExecutable {
     pub nt_headers: NtHeaders,
     pub section_table: section_table::SectionTable,
     pub executable_type: ExecutableKind,
-    pub bytes: Vec<u8>,
+    bytes: Vec<u8>,
+}
+
+impl std::fmt::Debug for PortableExecutable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PortableExecutable")
+            .field("nt_headers", &self.nt_headers)
+            .field("section_table", &self.section_table)
+            .field("executable_type", &self.executable_type)
+            .field("bytes", &self.bytes.len())
+            .finish()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -49,7 +62,6 @@ impl PortableExecutable {
     fn parse(bytes: impl Into<Vec<u8>>) -> Result<Self, PeError> {
         let mut cursor = cursor::Cursor::new(bytes.into());
         let mz = cursor.read_u16();
-        tracing::debug!("mz: {:#x?}", mz);
 
         let mut pe_signature = cursor.read_u16();
         let max_offset = cursor.bytes.len() - 2;
@@ -61,8 +73,6 @@ impl PortableExecutable {
             }
             pe_signature = cursor.read_u16();
         }
-
-        tracing::debug!("got the pe_signature: {:#x?}", pe_signature);
 
         //  skip the 2 null bytes
         cursor.skip(2);
@@ -96,6 +106,10 @@ impl PortableExecutable {
             self.nt_headers.opt_header.data_directories[IMAGE_DIRECTORY_ENTRY_IMPORT.0 as usize]
                 .clone(),
         )
+    }
+
+    pub fn get_image_directory(&self, entry: IMAGE_DIRECTORY_ENTRY) -> ImageDataDirectory {
+        self.nt_headers.opt_header.data_directories[entry.0 as usize].clone()
     }
 }
 

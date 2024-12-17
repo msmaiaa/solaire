@@ -1,2 +1,2 @@
-## WIP
-
+- External/Internal memory manipulation functions (x86/x64)
+- A x86/x64 PE parser
